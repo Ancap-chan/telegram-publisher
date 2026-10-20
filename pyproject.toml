@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "telegram-publisher"
+version = "0.1.0"
+description = "Локальный инструмент для подготовки и публикации постов в Telegram"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "python-telegram-bot>=22,<23",
+    "python-dotenv>=1.0,<2",
+    "pyperclip>=1.9,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

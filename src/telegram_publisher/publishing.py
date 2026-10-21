@@ -130,10 +130,7 @@ def _rich_payload(text: str, image_path: str | None, *, rich_formatting: bool) -
     if rich_formatting:
         body = text
     else:
-        body = html.escape(text).replace("&", "&amp;")
-        body = body.replace("\n", "\n")
-        body = body.replace("<", "&lt;").replace(">", "&gt;")
-        body = body.replace("&amp;lt;", "&lt;").replace("&amp;gt;", "&gt;").replace("&amp;amp;", "&amp;")
+        body = html.escape(text, quote=False)
     rich_message: dict = {"html": body}
     if image_path:
         rich_message["media"] = [

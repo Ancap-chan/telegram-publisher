@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -16,20 +17,24 @@ EDITOR_HTML = r"""<!doctype html>
 <title>Редактор публикации</title>
 <style>
 :root{font:16px "Segoe UI",sans-serif;color:#222;background:#f4f5f7}
+*{box-sizing:border-box}
 body{margin:0;display:flex;flex-direction:column;height:100vh}
-header{padding:12px;background:#fff;border-bottom:1px solid #ddd;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-button{font:inherit;padding:7px 10px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer}
+header{padding:10px;background:#fff;border-bottom:1px solid #ddd;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+button,select{font:inherit;padding:7px 10px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer}
 button:hover{background:#eee}
 main{flex:1;overflow:auto;padding:24px}
-#editor{max-width:900px;min-height:calc(100vh - 150px);margin:0 auto;background:#fff;padding:32px;box-shadow:0 1px 5px #0001;outline:none;line-height:1.55;overflow-wrap:anywhere}
+#editor{max-width:1000px;min-height:calc(100vh - 190px);margin:0 auto;background:#fff;padding:32px;box-shadow:0 1px 5px #0001;outline:none;line-height:1.55;overflow-wrap:anywhere}
 #editor img,#editor video{max-width:100%;height:auto}
-#editor table{border-collapse:collapse;width:100%}#editor td,#editor th{border:1px solid #888;padding:6px}
-footer{padding:8px 14px;background:#fff;border-top:1px solid #ddd;display:flex;align-items:center;justify-content:space-between}
-.status{color:#666;font-size:13px}
+#editor table{border-collapse:collapse;width:100%}
+#editor td,#editor th{border:1px solid #888;padding:6px}
+footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.status{color:#555;font-size:13px}
+.publish-options{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .context-menu{position:fixed;z-index:1000;min-width:150px;padding:4px;background:#fff;border:1px solid #bbb;border-radius:5px;box-shadow:0 3px 12px #0002}
 .context-menu[hidden]{display:none}
 .context-menu button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 10px}
 .context-menu button:hover{background:#eee}
+#publish{font-weight:600}
 </style>
 </head>
 <body>
@@ -44,11 +49,48 @@ footer{padding:8px 14px;background:#fff;border-top:1px solid #ddd;display:flex;a
 <button data-edit="copy">Копировать</button>
 <button data-edit="paste">Вставить</button>
 </div>
-<footer><span class="status">Вставка из буфера Ctrl+V сохраняет доступное форматирование. Медиа добавляется по публичному URL.</span><span><button id="cancel">Отмена</button> <button id="save">Сохранить и закрыть</button></span></footer>
+<footer>
+<div class="publish-options">
+<label for="channel">Канал:</label><select id="channel" aria-label="Канал"></select>
+<label for="mode">Способ:</label><select id="mode" aria-label="Способ публикации">
+<option value="rich">Рич-текст (с форматированием)</option>
+<option value="plain">Обычный текст</option>
+<option value="rich_series">Серия рич-сообщений</option>
+<option value="plain_series">Серия обычных сообщений</option>
+</select>
+<label><input id="series" type="checkbox"> Разбить на серию</label>
+</div>
+<div class="publish-options">
+<button id="manage">Настроить каналы…</button>
+<button id="cancel">Отмена</button>
+<button id="publish">Опубликовать</button>
+</div>
+<span class="status" id="status">Вставка через Ctrl+V сохраняет доступное форматирование. Изображения и видео можно добавлять по публичному URL.</span>
+</footer>
 <script>
 const editor=document.getElementById('editor');
 const contextMenu=document.getElementById('context-menu');
-editor.innerHTML=window.initialContent||'';
+const channelSelect=document.getElementById('channel');
+const modeSelect=document.getElementById('mode');
+const seriesCheckbox=document.getElementById('series');
+let config={profiles:[],selected_profile_id:null,mode:'rich',series:false,status:''};
+function applyConfig(value){
+ config=value||config;
+ editor.innerHTML=window.initialContent||'';
+ channelSelect.replaceChildren();
+ for(const profile of (config.profiles||[])){
+  const option=document.createElement('option');
+  option.value=profile.profile_id;
+  option.textContent=profile.name+' — '+profile.chat_id;
+  channelSelect.append(option);
+ }
+ if(config.selected_profile_id)channelSelect.value=config.selected_profile_id;
+ modeSelect.value=config.mode||'rich';
+ seriesCheckbox.checked=Boolean(config.series);
+ if(!channelSelect.value&&channelSelect.options.length)channelSelect.selectedIndex=0;
+ if(config.status)document.getElementById('status').textContent=config.status;
+ else if(!channelSelect.options.length)document.getElementById('status').textContent='Сначала настрой канал с помощью кнопки «Настроить каналы…».';
+}
 function hideContextMenu(){contextMenu.hidden=true}
 editor.addEventListener('contextmenu',event=>{
  event.preventDefault();
@@ -98,8 +140,25 @@ document.getElementById('link').onclick=()=>{const url=askUrl('Публичны�
 document.getElementById('image').onclick=()=>{const url=askUrl('Публичный URL изображения');if(url){editor.focus();document.execCommand('insertHTML',false,'<p><img src="'+url.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'" alt=""></p>')}};
 document.getElementById('video').onclick=()=>{const url=askUrl('Публичный URL видео');if(url){editor.focus();document.execCommand('insertHTML',false,'<p><video controls src="'+url.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'"></video></p>')}};
 document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,Number(prompt('Количество строк','2'))||2));const cols=Math.max(1,Math.min(10,Number(prompt('Количество столбцов','2'))||2));let table='<table><tbody>';for(let r=0;r<rows;r++){table+='<tr>';for(let c=0;c<cols;c++)table+='<td><br></td>';table+='</tr>'}table+='</tbody></table><p><br></p>';editor.focus();document.execCommand('insertHTML',false,table)};
-document.getElementById('save').onclick=async()=>{await window.pywebview.api.save_content(editor.innerHTML)};
-document.getElementById('cancel').onclick=()=>window.pywebview.api.cancel();
+modeSelect.addEventListener('change',()=>{if(modeSelect.value.endsWith('_series'))seriesCheckbox.checked=true});
+function currentResult(action){
+ return {action,html:editor.innerHTML,profile_id:channelSelect.value||null,mode:modeSelect.value,series:seriesCheckbox.checked};
+}
+document.getElementById('publish').onclick=async()=>{
+ if(!channelSelect.value){
+  document.getElementById('status').textContent='Выбери канал или сначала настрой его.';
+  return;
+ }
+ const text=editor.innerText.trim();
+ if(!text&&!editor.querySelector('img,video')){
+  document.getElementById('status').textContent='Добавь текст, изображение или видео перед публикацией.';
+  return;
+ }
+ await window.pywebview.api.finish(currentResult('publish'));
+};
+document.getElementById('manage').onclick=async()=>{await window.pywebview.api.finish(currentResult('manage_profiles'))};
+document.getElementById('cancel').onclick=async()=>{await window.pywebview.api.finish(currentResult('cancel'))};
+window.applyEditorConfig=applyConfig;
 </script>
 </body></html>"""
 
@@ -111,26 +170,34 @@ class EditorApi:
         self.output_path = output_path
         self.window = window
 
-    def save_content(self, content: str) -> None:
-        self.output_path.write_text(content, encoding="utf-8")
-        self.window.destroy()
-
-    def cancel(self) -> None:
+    def finish(self, result: dict) -> None:
+        self.output_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
         self.window.destroy()
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
-        raise SystemExit("Нужно указать файлы исходного и итогового HTML.")
-    initial_path, output_path = map(Path, sys.argv[1:3])
+    if len(sys.argv) != 4:
+        raise SystemExit("Нужно указать файлы исходного HTML, результата и настроек редактора.")
+    initial_path, output_path, config_path = map(Path, sys.argv[1:4])
     initial_content = initial_path.read_text(encoding="utf-8")
-    window = webview.create_window("Визуальный редактор публикации", html=EDITOR_HTML, width=1100, height=800)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    window = webview.create_window(
+        "Подготовка и публикация поста",
+        html=EDITOR_HTML,
+        width=1200,
+        height=850,
+    )
     api = EditorApi(output_path, window)
-    window.expose(api.save_content, api.cancel)
+    window.expose(api.finish)
 
     def initialize() -> None:
-        import json
-        window.evaluate_js("window.initialContent = " + json.dumps(initial_content, ensure_ascii=False) + "; document.getElementById('editor').innerHTML = window.initialContent;")
+        window.evaluate_js(
+            "window.initialContent = "
+            + json.dumps(initial_content, ensure_ascii=False)
+            + "; window.applyEditorConfig("
+            + json.dumps(config, ensure_ascii=False)
+            + ");"
+        )
 
     window.events.loaded += initialize
     webview.start(debug=False)

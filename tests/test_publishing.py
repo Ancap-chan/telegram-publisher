@@ -30,3 +30,33 @@ def test_split_prefers_paragraph_boundaries() -> None:
 def test_non_positive_limit_is_rejected() -> None:
     with pytest.raises(ValueError):
         split_text("текст", limit=0)
+
+
+
+def test_rich_message_limit_is_explicit() -> None:
+    from telegram_publisher.publishing import RICH_TEXT_LIMIT
+
+    assert RICH_TEXT_LIMIT == 32768
+
+
+def test_estimate_caption_and_series_counts() -> None:
+    from telegram_publisher.publishing import estimate_message_count
+
+    assert estimate_message_count("коротко", "photo.png", "caption") == 1
+    assert estimate_message_count("а" * 1500, "photo.png", "caption", True) == 2
+    assert estimate_message_count("а" * 5000, None, "plain_series", True) == 2
+
+
+def test_plain_rich_payload_escapes_html() -> None:
+    from telegram_publisher.publishing import _rich_payload
+
+    payload = _rich_payload("<текст> & данные", None, rich_formatting=False)
+    assert payload["html"] == "&lt;текст&gt; &amp; данные"
+
+
+def test_rich_payload_references_uploaded_image() -> None:
+    from telegram_publisher.publishing import _rich_payload
+
+    payload = _rich_payload("Текст", "photo.png", rich_formatting=False)
+    assert payload["media"][0]["media"]["media"] == "attach://photo"
+    assert "tg://photo?id=publication_photo" in payload["html"]

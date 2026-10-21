@@ -406,7 +406,6 @@ class PublisherWindow:
             self.root.after(300, self._poll_editor, result_path)
             return
 
-        self.root.deiconify()
         result: dict = {}
         if result_path.is_file():
             try:
@@ -426,6 +425,8 @@ class PublisherWindow:
             self.editor_tempdir = None
 
         action = result.get("action")
+        if action != "publish":
+            self.root.deiconify()
         if action in {"publish", "manage_profiles", "cancel"} and "html" in result:
             self.html_content = str(result.get("html", ""))
             self.editor_mode = str(result.get("mode", "rich"))

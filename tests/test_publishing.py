@@ -59,7 +59,7 @@ def test_rich_payload_references_uploaded_image() -> None:
 
     payload = _rich_payload("Текст", "photo.png", rich_formatting=False)
     assert payload["media"][0]["media"]["media"] == "attach://photo"
-    assert "tg://photo?id=publication_photo" in payload["html"]
+    assert '<img src="tg://photo?id=publication_photo" alt="Изображение">' in payload["html"]
 
 
 
@@ -80,8 +80,8 @@ def test_rich_payload_converts_public_media_urls() -> None:
         "type": "video",
         "media": "https://example.org/movie.mp4",
     }
-    assert "tg://photo?id=publication_media_1" in payload["html"]
-    assert "tg://video?id=publication_media_2" in payload["html"]
+    assert '<img src="tg://photo?id=publication_media_1" alt="Изображение">' in payload["html"]
+    assert '<video controls src="tg://video?id=publication_media_2"></video>' in payload["html"]
 
 
 def test_rich_payload_ignores_non_public_media_urls() -> None:

@@ -143,7 +143,9 @@ def _rich_payload(text: str, image_path: str | None, *, rich_formatting: bool) -
         media_id = f"publication_media_{len(media) + 1}"
         media.append({"id": media_id, "media": {"type": media_type, "media": url}})
         label = "Видео" if media_type == "video" else "Изображение"
-        return f'<a href="tg://{media_type}?id={media_id}">{label}</a>'
+        if media_type == "photo":
+            return f'<img src="tg://photo?id={media_id}" alt="{label}">'
+        return f'<video controls src="tg://video?id={media_id}"></video>'
 
     if rich_formatting:
         body = re.sub(r"<(?:img|video)\b[^>]*>", replace_media, body, flags=re.IGNORECASE)
@@ -155,7 +157,7 @@ def _rich_payload(text: str, image_path: str | None, *, rich_formatting: bool) -
                 "media": {"type": "photo", "media": "attach://photo"},
             }
         )
-        rich_message["html"] += '\n\n<a href="tg://photo?id=publication_photo">Изображение</a>'
+        rich_message["html"] += '\n\n<img src="tg://photo?id=publication_photo" alt="Изображение">'
     if media:
         rich_message["media"] = media
     return rich_message

@@ -20,7 +20,6 @@ from telegram_publisher.profiles import (
 from telegram_publisher.publishing import (
     CAPTION_LIMIT,
     RICH_TEXT_LIMIT,
-    TEXT_LIMIT,
     estimate_message_count,
     publish_sync,
 )
@@ -441,7 +440,7 @@ class PublisherWindow:
         return "plain" if length <= TEXT_LIMIT else "rich"
 
     def _on_mode_selected(self, _event: tk.Event | None = None) -> None:
-        self.mode_hint.configure(text=self.mode_hint.cget("text"))
+        self._update_publication_options()
 
     def _send(self) -> None:
         if self.send_in_progress:
@@ -465,6 +464,13 @@ class PublisherWindow:
 
         mode = self.mode_values.get(self.mode_combo.get(), "auto")
         series = self.series_var.get()
+        if len(content) > RICH_TEXT_LIMIT and not series:
+            messagebox.showwarning(
+                "Слишком длинный текст",
+                "Для текста длиннее 32768 символов включи серию публикаций.",
+                parent=self.root,
+            )
+            return
         message_count = estimate_message_count(content, self.image_path, mode, series)
         if not messagebox.askyesno(
             "Подтверждение публикации",

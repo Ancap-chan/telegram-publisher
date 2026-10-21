@@ -17,7 +17,13 @@ from telegram_publisher.profiles import (
     load_profiles,
     save_profile,
 )
-from telegram_publisher.publishing import (\n    CAPTION_LIMIT,\n    RICH_TEXT_LIMIT,\n    TEXT_LIMIT,\n    estimate_message_count,\n    publish_sync,\n)
+from telegram_publisher.publishing import (
+    CAPTION_LIMIT,
+    RICH_TEXT_LIMIT,
+    TEXT_LIMIT,
+    estimate_message_count,
+    publish_sync,
+)
 
 
 def _load_environment() -> None:

@@ -202,7 +202,7 @@ async def send_publication(
             mode = "plain" if len(text) <= TEXT_LIMIT else "rich"
         elif len(text) > CAPTION_LIMIT:
             first = text[:CAPTION_LIMIT].rstrip()
-            remaining = text[len(first):].strip()
+            remaining = text[CAPTION_LIMIT:].strip()
             sent = 0
             async with Bot(token=token) as bot:
                 path = Path(image_path)

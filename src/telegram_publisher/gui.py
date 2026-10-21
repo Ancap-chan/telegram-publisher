@@ -88,6 +88,7 @@ class PublisherWindow:
         self._build_interface()
         self._refresh_profiles()
         self._update_counter()
+        self.root.bind("<Control-e>", lambda _event: self._open_editor())
         self.root.after(150, self._open_editor)
 
     def _load_profiles_with_environment(self) -> list[ChannelProfile]:
@@ -342,12 +343,14 @@ class PublisherWindow:
         initial_path = folder / "initial.html"
         result_path = folder / "result.html"
         initial_path.write_text(self.html_content, encoding="utf-8")
+        self.root.withdraw()
         try:
             self.editor_process = subprocess.Popen(
                 [sys.executable, "-m", "telegram_publisher.editor", str(initial_path), str(result_path)],
                 cwd=str(Path(__file__).resolve().parents[2]),
             )
         except Exception as error:
+            self.root.deiconify()
             self.editor_tempdir.cleanup()
             self.editor_tempdir = None
             messagebox.showerror("Визуальный редактор", f"Не удалось открыть редактор: {error}", parent=self.root)
@@ -358,6 +361,7 @@ class PublisherWindow:
         if self.editor_process is None or self.editor_process.poll() is None:
             self.root.after(300, self._poll_editor, result_path)
             return
+        self.root.deiconify()
         if result_path.is_file():
             self.html_content = result_path.read_text(encoding="utf-8")
             self._updating_preview = True

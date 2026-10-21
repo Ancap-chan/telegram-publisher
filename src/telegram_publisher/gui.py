@@ -38,12 +38,12 @@ class _PreviewTextParser(__import__("html.parser", fromlist=["HTMLParser"]).HTML
         self.parts.append(data)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in {"p", "div", "li", "blockquote", "h1", "h2", "h3", "tr"} and self.parts and not self.parts[-1].endswith("\\n"):
-            self.parts.append("\\n")
+        if tag in {"p", "div", "li", "blockquote", "h1", "h2", "h3", "tr", "br"} and self.parts and not self.parts[-1].endswith("\n"):
+            self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in {"p", "div", "li", "blockquote", "h1", "h2", "h3", "tr"}:
-            self.parts.append("\\n")
+            self.parts.append("\n")
 
 
 def _html_to_text(content: str) -> str:
@@ -362,7 +362,7 @@ class PublisherWindow:
         except tk.TclError:
             pass
         self.text.insert(tk.INSERT, content)
-        self.html_content = html.escape(self.text.get("1.0", "end-1c"), quote=False).replace("\\n", "<br>")
+        self.html_content = html.escape(self.text.get("1.0", "end-1c"), quote=False).replace("\n", "<br>")
         self._update_counter()
 
     def _choose_image(self) -> None:
@@ -381,7 +381,7 @@ class PublisherWindow:
     def _on_text_modified(self, _event: tk.Event) -> None:
         if self.text.edit_modified():
             if not self._updating_preview:
-                self.html_content = html.escape(self.text.get("1.0", "end-1c"), quote=False).replace("\\n", "<br>")
+                self.html_content = html.escape(self.text.get("1.0", "end-1c"), quote=False).replace("\n", "<br>")
             self._update_counter()
             self.text.edit_modified(False)
 
@@ -493,7 +493,7 @@ class PublisherWindow:
             )
             self.mode_combo.set(selected)
 
-        if len(content) > RICH_TEXT_LIMIT and not self.series_var.get():
+        if len(plain_content) > RICH_TEXT_LIMIT and not self.series_var.get():
             hint = (
                 "Текст превышает 32768 символов. Включи серию публикаций, "
                 "чтобы разбить его на несколько сообщений."
@@ -544,19 +544,19 @@ class PublisherWindow:
         plain_content = self.text.get("1.0", "end-1c").strip()
         mode = self.mode_values.get(self.mode_combo.get(), "auto")
         content = self.html_content if mode in {"rich", "rich_series", "media_text"} else plain_content
-        if not plain_content and not self.image_path:
+        if not plain_content and not self.image_path and not content.strip():
             messagebox.showwarning("Пустая публикация", "Добавь текст или выбери изображение.")
             return
 
         series = self.series_var.get()
-        if len(content) > RICH_TEXT_LIMIT and not series:
+        if len(plain_content) > RICH_TEXT_LIMIT and not series:
             messagebox.showwarning(
                 "Слишком длинный текст",
                 "Для текста длиннее 32768 символов включи серию публикаций.",
                 parent=self.root,
             )
             return
-        message_count = estimate_message_count(content, self.image_path, mode, series)
+        message_count = estimate_message_count(plain_content, self.image_path, mode, series)
         if not messagebox.askyesno(
             "Подтверждение публикации",
             f"Опубликовать в канале «{profile.name}» ({profile.chat_id})?\n"

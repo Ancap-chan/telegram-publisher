@@ -13,6 +13,7 @@ dependencies = [
     "python-dotenv>=1.0,<2",
     "pyperclip>=1.9,<2",
     "keyring>=25,<27",
+    "pywebview>=5.4,<7",
 ]
 
 [project.optional-dependencies]
@@ -25,3 +26,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+

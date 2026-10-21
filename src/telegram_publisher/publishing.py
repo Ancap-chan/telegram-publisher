@@ -6,6 +6,7 @@ import asyncio
 import html
 import json
 import mimetypes
+import re
 import uuid
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -126,23 +127,37 @@ def _multipart_request(token: str, chat_id: str, rich_message: dict, image_path:
 
 
 def _rich_payload(text: str, image_path: str | None, *, rich_formatting: bool) -> dict:
-    """Сформировать содержимое рич-сообщения и привязать локальную фотографию."""
+    """Сформировать HTML и список медиа для рич-сообщения."""
+    body = text if rich_formatting else html.escape(text, quote=False)
+    media: list[dict] = []
+
+    def replace_media(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        source = re.search(r"""\bsrc\s*=\s*(['"])(.*?)\1""", tag, re.IGNORECASE | re.DOTALL)
+        if not source:
+            return ""
+        url = html.unescape(source.group(2)).strip()
+        if not url.lower().startswith(("https://", "http://")):
+            return ""
+        media_type = "video" if tag.lower().startswith("<video") else "photo"
+        media_id = f"publication_media_{len(media) + 1}"
+        media.append({"id": media_id, "media": {"type": media_type, "media": url}})
+        label = "Видео" if media_type == "video" else "Изображение"
+        return f'<a href="tg://{media_type}?id={media_id}">{label}</a>'
+
     if rich_formatting:
-        body = text
-    else:
-        body = html.escape(text, quote=False)
+        body = re.sub(r"<(?:img|video)\b[^>]*>", replace_media, body, flags=re.IGNORECASE)
     rich_message: dict = {"html": body}
     if image_path:
-        rich_message["media"] = [
+        media.append(
             {
                 "id": "publication_photo",
                 "media": {"type": "photo", "media": "attach://photo"},
             }
-        ]
-        rich_message["html"] = (
-            rich_message["html"]
-            + '\n\n<a href="tg://photo?id=publication_photo">Изображение</a>'
         )
+        rich_message["html"] += '\n\n<a href="tg://photo?id=publication_photo">Изображение</a>'
+    if media:
+        rich_message["media"] = media
     return rich_message
 
 
@@ -242,11 +257,11 @@ async def send_publication(
         elif len(text) > RICH_TEXT_LIMIT and not series:
             raise ValueError("Рич-сообщение ограничено 32768 символами. Включи серию публикаций.")
         elif len(text) <= RICH_TEXT_LIMIT:
-            await _send_rich(token, chat_id, text, image_path, rich_formatting=False)
+            await _send_rich(token, chat_id, text, image_path, rich_formatting=True)
             return 1
         else:
             parts = split_text(text, RICH_TEXT_LIMIT)
-            await _send_rich(token, chat_id, parts[0], image_path, rich_formatting=False)
+            await _send_rich(token, chat_id, parts[0], image_path, rich_formatting=True)
             for part in parts[1:]:
                 await _send_rich(token, chat_id, part, rich_formatting=False)
             return len(parts)

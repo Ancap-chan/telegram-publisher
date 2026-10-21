@@ -68,11 +68,13 @@ def estimate_message_count(
 ) -> int:
     """Оценить число сообщений для подтверждения публикации."""
     text = text.strip()
-    if mode == "caption":
-        return (1 if image_path else 0) + len(split_text(text, TEXT_LIMIT)[1:] if image_path and text else split_text(text, TEXT_LIMIT))
+    if mode == "caption" or (mode == "plain_series" and image_path):
+        return (1 if image_path else 0) + (
+            len(split_text(text[CAPTION_LIMIT:], TEXT_LIMIT))
+            if image_path and len(text) > CAPTION_LIMIT
+            else 0
+        )
     if mode == "plain_series":
-        if image_path:
-            return 1 + len(split_text(text[CAPTION_LIMIT:], TEXT_LIMIT)) if text else 1
         return len(split_text(text, TEXT_LIMIT))
     if mode == "rich_series" or (series and mode in {"rich", "media_text"}):
         return max(1, len(split_text(text, RICH_TEXT_LIMIT))) if text or image_path else 0
@@ -191,7 +193,10 @@ async def send_publication(
 
     if mode in {"plain_series", "rich_series"}:
         series = True
-        mode = "plain" if mode == "plain_series" else "rich"
+        if mode == "plain_series":
+            mode = "caption" if image_path else "plain"
+        else:
+            mode = "rich"
 
     if mode == "caption":
         if image_path and len(text) > CAPTION_LIMIT and not series:

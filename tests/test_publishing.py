@@ -82,6 +82,7 @@ def test_rich_payload_converts_public_media_urls() -> None:
     }
     assert '<img src="tg://photo?id=publication_media_1" alt="Изображение">' in payload["html"]
     assert '<video controls src="tg://video?id=publication_media_2"></video>' in payload["html"]
+    assert payload["html"].count("</video>") == 1
 
 
 def test_rich_payload_ignores_non_public_media_urls() -> None:

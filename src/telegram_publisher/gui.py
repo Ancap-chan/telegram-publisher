@@ -20,6 +20,7 @@ from telegram_publisher.profiles import (
 from telegram_publisher.publishing import (
     CAPTION_LIMIT,
     RICH_TEXT_LIMIT,
+    TEXT_LIMIT,
     estimate_message_count,
     publish_sync,
 )

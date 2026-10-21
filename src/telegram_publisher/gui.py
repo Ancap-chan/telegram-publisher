@@ -17,7 +17,7 @@ from telegram_publisher.profiles import (
     load_profiles,
     save_profile,
 )
-from telegram_publisher.publishing import TEXT_LIMIT, publish_sync, split_text
+from telegram_publisher.publishing import (\n    CAPTION_LIMIT,\n    RICH_TEXT_LIMIT,\n    TEXT_LIMIT,\n    estimate_message_count,\n    publish_sync,\n)
 
 
 def _load_environment() -> None:
@@ -99,12 +99,27 @@ class PublisherWindow:
             side=tk.RIGHT, padx=(8, 0)
         )
 
-        ttk.Label(container, text="Текст публикации").pack(anchor=tk.W, pady=(14, 4))
+        publication_options = ttk.Frame(container)
+        publication_options.pack(fill=tk.X, pady=(14, 0))
+        ttk.Label(publication_options, text="Способ публикации:").pack(side=tk.LEFT)
+        self.series_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            publication_options,
+            text="Разбить на серию публикаций",
+            variable=self.series_var,
+            command=self._update_publication_options,
+        ).pack(side=tk.RIGHT)
+        self.mode_combo = ttk.Combobox(publication_options, state="readonly", width=34)
+        self.mode_combo.pack(side=tk.LEFT, padx=(8, 0))
+        self.mode_combo.bind("<<ComboboxSelected>>", self._on_mode_selected)
+        self.mode_hint = ttk.Label(container, text="", wraplength=760)
+        self.mode_hint.pack(anchor=tk.W, pady=(4, 0))
+
+        ttk.Label(container, text="Текст публикации").pack(anchor=tk.W, pady=(8, 4))
         self.text = tk.Text(container, wrap=tk.WORD, undo=True, font=("Segoe UI", 11), height=18)
         self.text.pack(fill=tk.BOTH, expand=True)
         self.text.bind("<<Modified>>", self._on_text_modified)
-        self.text.bind("<Control-v>", self._paste_clipboard_event)
-        self.text.bind("<Control-V>", self._paste_clipboard_event)
+        self.text.bind("<Control-KeyPress>", self._paste_control_key)
         self.text.bind("<Shift-Insert>", self._paste_clipboard_event)
         self.text.edit_modified(False)
 
@@ -281,6 +296,15 @@ class PublisherWindow:
         refill(self.selected_profile_id)
         name_entry.focus_set()
 
+    def _paste_control_key(self, event: tk.Event) -> str | None:
+        """Распознавать физическую клавишу V независимо от раскладки Windows."""
+        keysym = str(getattr(event, "keysym", "")).lower()
+        keycode = getattr(event, "keycode", 0)
+        if keysym in {"v", "м"} or (sys.platform == "win32" and keycode == 86):
+            self._paste_clipboard()
+            return "break"
+        return None
+
     def _paste_clipboard_event(self, _event: tk.Event) -> str:
         self._paste_clipboard()
         return "break"
@@ -318,12 +342,100 @@ class PublisherWindow:
 
     def _update_counter(self) -> None:
         content = self.text.get("1.0", "end-1c").strip()
-        limit = 1024 if self.image_path else TEXT_LIMIT
-        parts = split_text(content, limit)
+        length = len(content)
         self.counter.configure(
-            text=f"{len(content)} символов · частей текста: {len(parts)}"
-            + (f" · подпись к изображению: до {limit}" if self.image_path else "")
+            text=f"{length} символов"
+            + (f" · предел рич-текста: {RICH_TEXT_LIMIT}" if length > TEXT_LIMIT else "")
         )
+        self._update_publication_options()
+
+    def _available_modes(self, length: int) -> list[tuple[str, str]]:
+        """Определить доступные способы отправки по длине текста и наличию изображения."""
+        series = self.series_var.get()
+        if series:
+            if self.image_path:
+                return [
+                    ("Подпись + продолжение", "caption"),
+                    ("Обычный текст + изображение", "media_text"),
+                    ("Рич-текст + изображение", "rich"),
+                    ("Серия обычных сообщений", "plain_series"),
+                    ("Серия рич-сообщений", "rich_series"),
+                ]
+            return [
+                ("Обычные сообщения", "plain_series"),
+                ("Рич-текст", "rich"),
+                ("Серия рич-сообщений", "rich_series"),
+            ]
+
+        if self.image_path:
+            if length <= CAPTION_LIMIT:
+                return [
+                    ("Подпись к изображению", "caption"),
+                    ("Обычный текст + изображение", "media_text"),
+                    ("Рич-текст + изображение", "rich"),
+                ]
+            if length <= TEXT_LIMIT:
+                return [
+                    ("Обычный текст + изображение", "media_text"),
+                    ("Рич-текст + изображение", "rich"),
+                ]
+            return [("Рич-текст + изображение", "rich")]
+
+        if length <= TEXT_LIMIT:
+            return [("Обычный текст", "plain"), ("Рич-текст", "rich")]
+        return [("Рич-текст", "rich")]
+
+    def _update_publication_options(self) -> None:
+        content = self.text.get("1.0", "end-1c").strip()
+        options = self._available_modes(len(content))
+        previous = self.mode_combo.get() if hasattr(self, "mode_combo") else ""
+        self.mode_values = {label: mode for label, mode in options}
+        labels = [label for label, _mode in options]
+        self.mode_combo["values"] = labels
+
+        if previous in self.mode_values:
+            self.mode_combo.set(previous)
+        else:
+            default_mode = self._default_mode(len(content))
+            selected = next(
+                (label for label, mode in options if mode == default_mode),
+                labels[0] if labels else "",
+            )
+            self.mode_combo.set(selected)
+
+        if len(content) > RICH_TEXT_LIMIT and not self.series_var.get():
+            hint = (
+                "Текст превышает 32768 символов. Включи серию публикаций, "
+                "чтобы разбить его на несколько сообщений."
+            )
+        elif self.mode_values.get(self.mode_combo.get()) in {"rich", "rich_series"}:
+            hint = (
+                "Рич-текст поддерживает форматирование Telegram. "
+                "Для разметки используй HTML-теги, например <b>жирный текст</b>, "
+                "<i>курсив</i>, <blockquote>цитата</blockquote>."
+            )
+        elif self.image_path and len(content) <= CAPTION_LIMIT:
+            hint = "По умолчанию текст станет подписью к изображению."
+        elif self.image_path and len(content) <= TEXT_LIMIT:
+            hint = (
+                "По умолчанию изображение и обычный текст отправятся одним сообщением "
+                "через встроенное медиа рич-сообщения."
+            )
+        else:
+            hint = "Обычные сообщения ограничены 4096 символами, подпись к фото — 1024."
+        self.mode_hint.configure(text=hint)
+
+    def _default_mode(self, length: int) -> str:
+        if self.image_path:
+            if length <= CAPTION_LIMIT:
+                return "caption"
+            if length <= TEXT_LIMIT:
+                return "media_text"
+            return "rich"
+        return "plain" if length <= TEXT_LIMIT else "rich"
+
+    def _on_mode_selected(self, _event: tk.Event | None = None) -> None:
+        self.mode_hint.configure(text=self.mode_hint.cget("text"))
 
     def _send(self) -> None:
         if self.send_in_progress:
@@ -345,12 +457,13 @@ class PublisherWindow:
             messagebox.showwarning("Пустая публикация", "Добавь текст или выбери изображение.")
             return
 
-        message_count = len(split_text(content, 1024 if self.image_path else TEXT_LIMIT))
-        if self.image_path:
-            message_count += 1
+        mode = self.mode_values.get(self.mode_combo.get(), "auto")
+        series = self.series_var.get()
+        message_count = estimate_message_count(content, self.image_path, mode, series)
         if not messagebox.askyesno(
             "Подтверждение публикации",
             f"Опубликовать в канале «{profile.name}» ({profile.chat_id})?\n"
+            f"Способ: {self.mode_combo.get()}.\n"
             f"Будет отправлено сообщений: {message_count}.",
             parent=self.root,
         ):
@@ -361,16 +474,23 @@ class PublisherWindow:
         self.status.configure(text="Отправка…")
         thread = threading.Thread(
             target=self._send_in_background,
-            args=(profile, content, self.image_path),
+            args=(profile, content, self.image_path, mode, series),
             daemon=True,
         )
         thread.start()
 
     def _send_in_background(
-        self, profile: ChannelProfile, content: str, image_path: str | None
+        self,
+        profile: ChannelProfile,
+        content: str,
+        image_path: str | None,
+        mode: str,
+        series: bool,
     ) -> None:
         try:
-            count = publish_sync(profile.token, profile.chat_id, content, image_path)
+            count = publish_sync(
+                profile.token, profile.chat_id, content, image_path, mode, series
+            )
         except Exception as error:
             self.root.after(0, self._send_failed, str(error))
             return

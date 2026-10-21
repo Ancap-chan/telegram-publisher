@@ -86,7 +86,7 @@ function applyConfig(value){
  }
  if(config.selected_profile_id)channelSelect.value=config.selected_profile_id;
  modeSelect.value=config.mode||'rich';
- seriesCheckbox.checked=Boolean(config.series);
+ seriesCheckbox.checked=Boolean(config.series)||modeSelect.value.endsWith('_series');
  if(!channelSelect.value&&channelSelect.options.length)channelSelect.selectedIndex=0;
  if(config.status)document.getElementById('status').textContent=config.status;
  else if(!channelSelect.options.length)document.getElementById('status').textContent='Сначала настрой канал с помощью кнопки «Настроить каналы…».';

@@ -596,11 +596,18 @@ class PublisherWindow:
 
         series = self.series_var.get()
         if len(plain_content) > RICH_TEXT_LIMIT and not series:
-            messagebox.showwarning(
-                "Слишком длинный текст",
-                "Для текста длиннее 32768 символов включи серию публикаций.",
-                parent=self.root,
-            )
+            warning = "Для текста длиннее 32768 символов включи серию публикаций."
+            if self.publishing_from_editor:
+                self.editor_status = warning
+                self.publishing_from_editor = False
+                self.root.withdraw()
+                self.root.after(250, self._open_editor)
+            else:
+                messagebox.showwarning(
+                    "Слишком длинный текст",
+                    warning,
+                    parent=self.root,
+                )
             return
         message_count = estimate_message_count(plain_content, self.image_path, mode, series)
         if mode in {"rich", "rich_series"} and re.search(

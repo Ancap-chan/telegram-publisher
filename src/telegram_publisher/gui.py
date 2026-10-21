@@ -605,6 +605,7 @@ class PublisherWindow:
             parent=self.root,
         ):
             if self.publishing_from_editor:
+                self.publishing_from_editor = False
                 self.root.withdraw()
                 self.root.after(150, self._open_editor)
             return

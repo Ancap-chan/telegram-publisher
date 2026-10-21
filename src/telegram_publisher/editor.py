@@ -141,6 +141,10 @@ document.getElementById('image').onclick=()=>{const url=askUrl('Публичны
 document.getElementById('video').onclick=()=>{const url=askUrl('Публичный URL видео');if(url){editor.focus();document.execCommand('insertHTML',false,'<p><video controls src="'+url.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'"></video></p>')}};
 document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,Number(prompt('Количество строк','2'))||2));const cols=Math.max(1,Math.min(10,Number(prompt('Количество столбцов','2'))||2));let table='<table><tbody>';for(let r=0;r<rows;r++){table+='<tr>';for(let c=0;c<cols;c++)table+='<td><br></td>';table+='</tr>'}table+='</tbody></table><p><br></p>';editor.focus();document.execCommand('insertHTML',false,table)};
 modeSelect.addEventListener('change',()=>{if(modeSelect.value.endsWith('_series'))seriesCheckbox.checked=true});
+seriesCheckbox.addEventListener('change',()=>{
+ if(seriesCheckbox.checked&&modeSelect.value==='plain')modeSelect.value='plain_series';
+ if(!seriesCheckbox.checked&&modeSelect.value.endsWith('_series'))modeSelect.value=modeSelect.value==='plain_series'?'plain':'rich';
+});
 function currentResult(action){
  return {action,html:editor.innerHTML,profile_id:channelSelect.value||null,mode:modeSelect.value,series:seriesCheckbox.checked};
 }

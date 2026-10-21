@@ -145,7 +145,7 @@ def _rich_payload(text: str, image_path: str | None, *, rich_formatting: bool) -
         label = "Видео" if media_type == "video" else "Изображение"
         if media_type == "photo":
             return f'<img src="tg://photo?id={media_id}" alt="{label}">'
-        return f'<video controls src="tg://video?id={media_id}"></video>'
+        return f'<video controls src="tg://video?id={media_id}">'
 
     if rich_formatting:
         body = re.sub(r"<(?:img|video)\b[^>]*>", replace_media, body, flags=re.IGNORECASE)

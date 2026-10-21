@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import html
 import os
+import subprocess
 import sys
+import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -24,6 +27,29 @@ from telegram_publisher.publishing import (
     estimate_message_count,
     publish_sync,
 )
+
+
+class _PreviewTextParser(__import__("html.parser", fromlist=["HTMLParser"]).HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"p", "div", "li", "blockquote", "h1", "h2", "h3", "tr"} and self.parts and not self.parts[-1].endswith("\\n"):
+            self.parts.append("\\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"p", "div", "li", "blockquote", "h1", "h2", "h3", "tr"}:
+            self.parts.append("\\n")
+
+
+def _html_to_text(content: str) -> str:
+    parser = _PreviewTextParser()
+    parser.feed(content)
+    return "".join(parser.parts).strip()
 
 
 def _load_environment() -> None:
@@ -49,6 +75,10 @@ class PublisherWindow:
         self.root.geometry("820x680")
         self.root.minsize(620, 480)
         self.image_path: str | None = None
+        self.html_content = ""
+        self._updating_preview = False
+        self.editor_process: subprocess.Popen | None = None
+        self.editor_tempdir: tempfile.TemporaryDirectory | None = None
         self.send_in_progress = False
 
         _load_environment()
@@ -121,7 +151,13 @@ class PublisherWindow:
         self.mode_hint = ttk.Label(container, text="", wraplength=760)
         self.mode_hint.pack(anchor=tk.W, pady=(4, 0))
 
-        ttk.Label(container, text="Текст публикации").pack(anchor=tk.W, pady=(8, 4))
+        editor_controls = ttk.Frame(container)
+        editor_controls.pack(fill=tk.X, pady=(8, 4))
+        ttk.Label(editor_controls, text="Содержимое публикации").pack(side=tk.LEFT)
+        self.editor_button = ttk.Button(
+            editor_controls, text="Открыть визуальный редактор…", command=self._open_editor
+        )
+        self.editor_button.pack(side=tk.RIGHT)
         self.text = tk.Text(container, wrap=tk.WORD, undo=True, font=("Segoe UI", 11), height=18)
         self.text.pack(fill=tk.BOTH, expand=True)
         self.text.bind("<<Modified>>", self._on_text_modified)
@@ -326,6 +362,7 @@ class PublisherWindow:
         except tk.TclError:
             pass
         self.text.insert(tk.INSERT, content)
+        self.html_content = html.escape(self.text.get("1.0", "end-1c"), quote=False).replace("\\n", "<br>")
         self._update_counter()
 
     def _choose_image(self) -> None:
@@ -343,8 +380,55 @@ class PublisherWindow:
 
     def _on_text_modified(self, _event: tk.Event) -> None:
         if self.text.edit_modified():
+            if not self._updating_preview:
+                self.html_content = html.escape(self.text.get("1.0", "end-1c"), quote=False).replace("\\n", "<br>")
             self._update_counter()
             self.text.edit_modified(False)
+
+    def _open_editor(self) -> None:
+        """Открыть отдельное окно визуального редактора и принять его результат."""
+        if self.editor_process is not None and self.editor_process.poll() is None:
+            messagebox.showinfo("Визуальный редактор", "Окно редактора уже открыто.", parent=self.root)
+            return
+        self.editor_tempdir = tempfile.TemporaryDirectory(prefix="telegram-publisher-editor-")
+        folder = Path(self.editor_tempdir.name)
+        initial_path = folder / "initial.html"
+        result_path = folder / "result.html"
+        initial_path.write_text(self.html_content, encoding="utf-8")
+        self.editor_button.configure(state=tk.DISABLED)
+        try:
+            self.editor_process = subprocess.Popen(
+                [sys.executable, "-m", "telegram_publisher.editor", str(initial_path), str(result_path)],
+                cwd=str(Path(__file__).resolve().parents[2]),
+            )
+        except Exception as error:
+            self.editor_button.configure(state=tk.NORMAL)
+            self.editor_tempdir.cleanup()
+            self.editor_tempdir = None
+            messagebox.showerror("Визуальный редактор", f"Не удалось открыть редактор: {error}", parent=self.root)
+            return
+        self._poll_editor(result_path)
+
+    def _poll_editor(self, result_path: Path) -> None:
+        if self.editor_process is None or self.editor_process.poll() is None:
+            self.root.after(300, self._poll_editor, result_path)
+            return
+        if result_path.is_file():
+            self.html_content = result_path.read_text(encoding="utf-8")
+            self._updating_preview = True
+            try:
+                self.text.delete("1.0", tk.END)
+                self.text.insert("1.0", _html_to_text(self.html_content))
+                self.text.edit_modified(False)
+            finally:
+                self._updating_preview = False
+            self._update_counter()
+            self.status.configure(text="Содержимое редактора сохранено")
+        self.editor_button.configure(state=tk.NORMAL)
+        self.editor_process = None
+        if self.editor_tempdir is not None:
+            self.editor_tempdir.cleanup()
+            self.editor_tempdir = None
 
     def _update_counter(self) -> None:
         content = self.text.get("1.0", "end-1c").strip()
@@ -416,9 +500,8 @@ class PublisherWindow:
             )
         elif self.mode_values.get(self.mode_combo.get()) in {"rich", "rich_series"}:
             hint = (
-                "Рич-текст поддерживает форматирование Telegram. "
-                "Для разметки используй HTML-теги, например <b>жирный текст</b>, "
-                "<i>курсив</i>, <blockquote>цитата</blockquote>."
+                "Визуальный редактор сохраняет форматирование для режима рич-текста. "
+                "Для обычного текста оформление преобразуется в текст без форматирования."
             )
         elif self.image_path and len(content) <= CAPTION_LIMIT:
             hint = "По умолчанию текст станет подписью к изображению."
@@ -458,12 +541,13 @@ class PublisherWindow:
             )
             return
 
-        content = self.text.get("1.0", "end-1c").strip()
-        if not content and not self.image_path:
+        plain_content = self.text.get("1.0", "end-1c").strip()
+        mode = self.mode_values.get(self.mode_combo.get(), "auto")
+        content = self.html_content if mode in {"rich", "rich_series", "media_text"} else plain_content
+        if not plain_content and not self.image_path:
             messagebox.showwarning("Пустая публикация", "Добавь текст или выбери изображение.")
             return
 
-        mode = self.mode_values.get(self.mode_combo.get(), "auto")
         series = self.series_var.get()
         if len(content) > RICH_TEXT_LIMIT and not series:
             messagebox.showwarning(

@@ -60,3 +60,33 @@ def test_rich_payload_references_uploaded_image() -> None:
     payload = _rich_payload("Текст", "photo.png", rich_formatting=False)
     assert payload["media"][0]["media"]["media"] == "attach://photo"
     assert "tg://photo?id=publication_photo" in payload["html"]
+
+
+
+def test_rich_payload_converts_public_media_urls() -> None:
+    from telegram_publisher.publishing import _rich_payload
+
+    payload = _rich_payload(
+        '<p>Текст</p><img src="https://example.org/picture.jpg">'
+        '<video controls src="https://example.org/movie.mp4"></video>',
+        None,
+        rich_formatting=True,
+    )
+    assert payload["media"][0]["media"] == {
+        "type": "photo",
+        "media": "https://example.org/picture.jpg",
+    }
+    assert payload["media"][1]["media"] == {
+        "type": "video",
+        "media": "https://example.org/movie.mp4",
+    }
+    assert "tg://photo?id=publication_media_1" in payload["html"]
+    assert "tg://video?id=publication_media_2" in payload["html"]
+
+
+def test_rich_payload_ignores_non_public_media_urls() -> None:
+    from telegram_publisher.publishing import _rich_payload
+
+    payload = _rich_payload('<img src="file:///private/photo.png">', None, rich_formatting=True)
+    assert "media" not in payload
+    assert payload["html"] == ""

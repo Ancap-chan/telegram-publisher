@@ -466,7 +466,7 @@ class PublisherWindow:
             # Закрытие окна без сохранения не считается ошибкой запуска.
             return
 
-        def _update_counter(self) -> None:
+    def _update_counter(self) -> None:
         content = self.text.get("1.0", "end-1c").strip()
         length = len(content)
         self.counter.configure(
@@ -570,6 +570,12 @@ class PublisherWindow:
             None,
         )
         if profile is None or not profile.token or not profile.chat_id:
+            if self.publishing_from_editor:
+                self.editor_status = "Настройки канала не заполнены. Проверь профиль и токен."
+                self.publishing_from_editor = False
+                self.root.withdraw()
+                self.root.after(250, self._open_editor)
+                return
             messagebox.showerror(
                 "Настройки не заполнены",
                 "Добавь профиль канала через кнопку «Настроить каналы…».",
@@ -578,7 +584,11 @@ class PublisherWindow:
             return
 
         plain_content = self.text.get("1.0", "end-1c").strip()
-        mode = self.mode_values.get(self.mode_combo.get(), "auto")
+        mode = (
+            self.editor_mode
+            if self.publishing_from_editor
+            else self.mode_values.get(self.mode_combo.get(), "auto")
+        )
         content = self.html_content if mode in {"rich", "rich_series", "media_text"} else plain_content
         if not plain_content and not self.image_path and not content.strip():
             messagebox.showwarning("Пустая публикация", "Добавь текст или выбери изображение.")
@@ -597,10 +607,14 @@ class PublisherWindow:
             r"<(?:img|video)\b", content, re.IGNORECASE
         ):
             message_count = max(1, message_count)
+        mode_label = next(
+            (label for label, value in self.mode_values.items() if value == mode),
+            mode,
+        )
         if not messagebox.askyesno(
             "Подтверждение публикации",
             f"Опубликовать в канале «{profile.name}» ({profile.chat_id})?\n"
-            f"Способ: {self.mode_combo.get()}.\n"
+            f"Способ: {mode_label}.\n"
             f"Будет отправлено сообщений: {message_count}.",
             parent=self.root,
         ):

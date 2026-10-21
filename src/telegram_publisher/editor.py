@@ -26,6 +26,10 @@ main{flex:1;overflow:auto;padding:24px}
 #editor table{border-collapse:collapse;width:100%}#editor td,#editor th{border:1px solid #888;padding:6px}
 footer{padding:8px 14px;background:#fff;border-top:1px solid #ddd;display:flex;align-items:center;justify-content:space-between}
 .status{color:#666;font-size:13px}
+.context-menu{position:fixed;z-index:1000;min-width:150px;padding:4px;background:#fff;border:1px solid #bbb;border-radius:5px;box-shadow:0 3px 12px #0002}
+.context-menu[hidden]{display:none}
+.context-menu button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 10px}
+.context-menu button:hover{background:#eee}
 </style>
 </head>
 <body>
@@ -35,10 +39,57 @@ footer{padding:8px 14px;background:#fff;border-top:1px solid #ddd;display:flex;a
 <button id="link">Ссылка</button><button id="image">Изображение по URL</button><button id="video">Видео по URL</button><button id="table">Таблица</button><button data-cmd="removeFormat">Очистить формат</button>
 </header>
 <main><div id="editor" contenteditable="true" spellcheck="true"></div></main>
+<div id="context-menu" class="context-menu" hidden>
+<button data-edit="cut">Вырезать</button>
+<button data-edit="copy">Копировать</button>
+<button data-edit="paste">Вставить</button>
+</div>
 <footer><span class="status">Вставка из буфера Ctrl+V сохраняет доступное форматирование. Медиа добавляется по публичному URL.</span><span><button id="cancel">Отмена</button> <button id="save">Сохранить и закрыть</button></span></footer>
 <script>
 const editor=document.getElementById('editor');
+const contextMenu=document.getElementById('context-menu');
 editor.innerHTML=window.initialContent||'';
+function hideContextMenu(){contextMenu.hidden=true}
+editor.addEventListener('contextmenu',event=>{
+ event.preventDefault();
+ contextMenu.hidden=false;
+ const x=Math.min(event.clientX,window.innerWidth-contextMenu.offsetWidth-8);
+ const y=Math.min(event.clientY,window.innerHeight-contextMenu.offsetHeight-8);
+ contextMenu.style.left=Math.max(8,x)+'px';
+ contextMenu.style.top=Math.max(8,y)+'px';
+});
+document.addEventListener('pointerdown',event=>{if(!contextMenu.contains(event.target))hideContextMenu()});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')hideContextMenu()});
+contextMenu.querySelectorAll('[data-edit]').forEach(button=>button.addEventListener('click',async()=>{
+ const action=button.dataset.edit;
+ hideContextMenu();
+ editor.focus();
+ if(action==='cut'||action==='copy'){
+  document.execCommand(action,false,null);
+  return;
+ }
+ try{
+  if(navigator.clipboard&&navigator.clipboard.read){
+   const items=await navigator.clipboard.read();
+   for(const item of items){
+    if(item.types.includes('text/html')){
+     const blob=await item.getType('text/html');
+     document.execCommand('insertHTML',false,await blob.text());
+     return;
+    }
+    if(item.types.includes('text/plain')){
+     const blob=await item.getType('text/plain');
+     document.execCommand('insertText',false,await blob.text());
+     return;
+    }
+   }
+  }
+  const text=await navigator.clipboard.readText();
+  document.execCommand('insertText',false,text);
+ }catch(error){
+  document.execCommand('paste',false,null);
+ }
+}));
 document.querySelectorAll('[data-cmd]').forEach(button=>button.addEventListener('click',()=>{
  editor.focus();const cmd=button.dataset.cmd;document.execCommand(cmd,false,button.dataset.value||null);
 }));

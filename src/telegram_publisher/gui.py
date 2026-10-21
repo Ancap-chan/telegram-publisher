@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import html
+import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -76,6 +78,9 @@ class PublisherWindow:
         self.root.minsize(620, 480)
         self.image_path: str | None = None
         self.html_content = ""
+        self.editor_mode = "rich"
+        self.editor_status = ""
+        self.publishing_from_editor = False
         self._updating_preview = False
         self.editor_process: subprocess.Popen | None = None
         self.editor_tempdir: tempfile.TemporaryDirectory | None = None
@@ -200,7 +205,7 @@ class PublisherWindow:
         self.selected_profile_id = self.profiles[index].profile_id if index >= 0 else None
         self.status.configure(text="Готово к работе")
 
-    def _manage_profiles(self) -> None:
+    def _manage_profiles(self, reopen_editor: bool = False) -> None:
         dialog = tk.Toplevel(self.root)
         dialog.title("Профили каналов")
         dialog.transient(self.root)
@@ -325,6 +330,13 @@ class PublisherWindow:
         ttk.Button(buttons, text="Закрыть", command=dialog.destroy).pack(side=tk.RIGHT)
         refill(self.selected_profile_id)
         name_entry.focus_set()
+        if reopen_editor:
+            dialog.bind(
+                "<Destroy>",
+                lambda event: self.root.after(150, self._open_editor)
+                if event.widget is dialog
+                else None,
+            )
 
     def _on_text_modified(self, _event: tk.Event) -> None:
         if self.text.edit_modified():
@@ -334,26 +346,58 @@ class PublisherWindow:
             self.text.edit_modified(False)
 
     def _open_editor(self) -> None:
-        """Открыть отдельное окно визуального редактора и принять его результат."""
+        """Открыть основной редактор и передать ему настройки публикации."""
         if self.editor_process is not None and self.editor_process.poll() is None:
-            messagebox.showinfo("Визуальный редактор", "Окно редактора уже открыто.", parent=self.root)
             return
+
         self.editor_tempdir = tempfile.TemporaryDirectory(prefix="telegram-publisher-editor-")
         folder = Path(self.editor_tempdir.name)
         initial_path = folder / "initial.html"
-        result_path = folder / "result.html"
+        result_path = folder / "result.json"
+        config_path = folder / "editor-config.json"
         initial_path.write_text(self.html_content, encoding="utf-8")
+        config_path.write_text(
+            json.dumps(
+                {
+                    "profiles": [
+                        {
+                            "profile_id": profile.profile_id,
+                            "name": profile.name,
+                            "chat_id": profile.chat_id,
+                        }
+                        for profile in self.profiles
+                    ],
+                    "selected_profile_id": self.selected_profile_id,
+                    "mode": self.editor_mode,
+                    "series": self.series_var.get(),
+                    "status": self.editor_status,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         self.root.withdraw()
         try:
             self.editor_process = subprocess.Popen(
-                [sys.executable, "-m", "telegram_publisher.editor", str(initial_path), str(result_path)],
+                [
+                    sys.executable,
+                    "-m",
+                    "telegram_publisher.editor",
+                    str(initial_path),
+                    str(result_path),
+                    str(config_path),
+                ],
                 cwd=str(Path(__file__).resolve().parents[2]),
             )
         except Exception as error:
             self.root.deiconify()
             self.editor_tempdir.cleanup()
             self.editor_tempdir = None
-            messagebox.showerror("Визуальный редактор", f"Не удалось открыть редактор: {error}", parent=self.root)
+            messagebox.showerror(
+                "Визуальный редактор",
+                f"Не удалось открыть редактор: {error}",
+                parent=self.root,
+            )
             return
         self._poll_editor(result_path)
 
@@ -361,9 +405,32 @@ class PublisherWindow:
         if self.editor_process is None or self.editor_process.poll() is None:
             self.root.after(300, self._poll_editor, result_path)
             return
+
         self.root.deiconify()
+        result: dict = {}
         if result_path.is_file():
-            self.html_content = result_path.read_text(encoding="utf-8")
+            try:
+                loaded = json.loads(result_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    result = loaded
+            except (OSError, json.JSONDecodeError) as error:
+                messagebox.showerror(
+                    "Визуальный редактор",
+                    f"Не удалось прочитать результат редактора: {error}",
+                    parent=self.root,
+                )
+
+        self.editor_process = None
+        if self.editor_tempdir is not None:
+            self.editor_tempdir.cleanup()
+            self.editor_tempdir = None
+
+        action = result.get("action")
+        if action in {"publish", "manage_profiles", "cancel"} and "html" in result:
+            self.html_content = str(result.get("html", ""))
+            self.editor_mode = str(result.get("mode", "rich"))
+            self.selected_profile_id = result.get("profile_id") or None
+            self.series_var.set(bool(result.get("series", False)))
             self._updating_preview = True
             try:
                 self.text.delete("1.0", tk.END)
@@ -372,19 +439,32 @@ class PublisherWindow:
             finally:
                 self._updating_preview = False
             self._update_counter()
-            self.status.configure(text="Содержимое редактора сохранено")
-        if not result_path.is_file() and self.editor_process.returncode:
-            messagebox.showerror(
-                "Визуальный редактор",
-                "Не удалось запустить визуальный редактор. Обнови зависимости проекта командой:\n\n"
-                '.venv\\Scripts\\python.exe -m pip install -e ".[dev]"',
-                parent=self.root,
+            selected_label = next(
+                (
+                    label
+                    for label, mode in self.mode_values.items()
+                    if mode == self.editor_mode
+                ),
+                None,
             )
-            self.status.configure(text="Визуальный редактор не запущен")
-        self.editor_process = None
-        if self.editor_tempdir is not None:
-            self.editor_tempdir.cleanup()
-            self.editor_tempdir = None
+            if selected_label is not None:
+                self.mode_combo.set(selected_label)
+
+        if action == "manage_profiles":
+            self._manage_profiles(reopen_editor=True)
+            return
+        if action == "publish":
+            self.publishing_from_editor = True
+            self.status.configure(text="Подготовка публикации")
+            self.root.after(100, self._send)
+            return
+        if action == "cancel":
+            self.status.configure(text="Редактор закрыт")
+            return
+
+        if not result_path.is_file() and self.editor_process is None:
+            # Закрытие окна без сохранения не считается ошибкой запуска.
+            return
 
     def _update_counter(self) -> None:
         content = self.text.get("1.0", "end-1c").strip()
@@ -490,6 +570,12 @@ class PublisherWindow:
             None,
         )
         if profile is None or not profile.token or not profile.chat_id:
+            if self.publishing_from_editor:
+                self.editor_status = "Настройки канала не заполнены. Проверь профиль и токен."
+                self.publishing_from_editor = False
+                self.root.withdraw()
+                self.root.after(250, self._open_editor)
+                return
             messagebox.showerror(
                 "Настройки не заполнены",
                 "Добавь профиль канала через кнопку «Настроить каналы…».",
@@ -498,7 +584,11 @@ class PublisherWindow:
             return
 
         plain_content = self.text.get("1.0", "end-1c").strip()
-        mode = self.mode_values.get(self.mode_combo.get(), "auto")
+        mode = (
+            self.editor_mode
+            if self.publishing_from_editor
+            else self.mode_values.get(self.mode_combo.get(), "auto")
+        )
         content = self.html_content if mode in {"rich", "rich_series", "media_text"} else plain_content
         if not plain_content and not self.image_path and not content.strip():
             messagebox.showwarning("Пустая публикация", "Добавь текст или выбери изображение.")
@@ -506,20 +596,39 @@ class PublisherWindow:
 
         series = self.series_var.get()
         if len(plain_content) > RICH_TEXT_LIMIT and not series:
-            messagebox.showwarning(
-                "Слишком длинный текст",
-                "Для текста длиннее 32768 символов включи серию публикаций.",
-                parent=self.root,
-            )
+            warning = "Для текста длиннее 32768 символов включи серию публикаций."
+            if self.publishing_from_editor:
+                self.editor_status = warning
+                self.publishing_from_editor = False
+                self.root.withdraw()
+                self.root.after(250, self._open_editor)
+            else:
+                messagebox.showwarning(
+                    "Слишком длинный текст",
+                    warning,
+                    parent=self.root,
+                )
             return
         message_count = estimate_message_count(plain_content, self.image_path, mode, series)
+        if mode in {"rich", "rich_series"} and re.search(
+            r"<(?:img|video)\b", content, re.IGNORECASE
+        ):
+            message_count = max(1, message_count)
+        mode_label = next(
+            (label for label, value in self.mode_values.items() if value == mode),
+            mode,
+        )
         if not messagebox.askyesno(
             "Подтверждение публикации",
             f"Опубликовать в канале «{profile.name}» ({profile.chat_id})?\n"
-            f"Способ: {self.mode_combo.get()}.\n"
+            f"Способ: {mode_label}.\n"
             f"Будет отправлено сообщений: {message_count}.",
             parent=self.root,
         ):
+            if self.publishing_from_editor:
+                self.publishing_from_editor = False
+                self.root.withdraw()
+                self.root.after(150, self._open_editor)
             return
 
         self.send_in_progress = True
@@ -531,6 +640,8 @@ class PublisherWindow:
             daemon=True,
         )
         thread.start()
+        if self.publishing_from_editor:
+            self.root.withdraw()
 
     def _send_in_background(
         self,
@@ -553,12 +664,27 @@ class PublisherWindow:
         self.send_in_progress = False
         self.send_button.configure(state=tk.NORMAL)
         self.status.configure(text="Не удалось отправить публикацию")
+        if self.publishing_from_editor:
+            self.editor_status = f"Ошибка публикации: {error}"
+            self.publishing_from_editor = False
+            self.root.withdraw()
+            self.root.after(250, self._open_editor)
+            return
         messagebox.showerror("Ошибка публикации", error, parent=self.root)
 
     def _send_succeeded(self, count: int) -> None:
         self.send_in_progress = False
         self.send_button.configure(state=tk.NORMAL)
         self.status.configure(text=f"Опубликовано. Отправлено сообщений: {count}")
+        if self.publishing_from_editor:
+            self.editor_status = f"Опубликовано. Отправлено сообщений: {count}"
+            self.publishing_from_editor = False
+            self.html_content = ""
+            self.text.delete("1.0", tk.END)
+            self._update_counter()
+            self.root.withdraw()
+            self.root.after(250, self._open_editor)
+            return
         messagebox.showinfo("Публикация завершена", f"Отправлено сообщений: {count}", parent=self.root)
 
 

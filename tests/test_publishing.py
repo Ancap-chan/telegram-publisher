@@ -96,6 +96,7 @@ def test_plain_html_preserves_telegram_supported_formatting_and_removes_media() 
     assert '<a href="https://example.org">ссылка</a>' in result
     assert "<blockquote>цитата</blockquote>" in result
     assert "<img" not in result
+    assert "<br" not in result
 
 
 def test_plain_text_length_ignores_markup() -> None:

@@ -95,6 +95,7 @@ function applyConfig(value){
  if(config.status)document.getElementById('status').textContent=config.status;
  else if(!channelSelect.options.length)document.getElementById('status').textContent='Сначала настрой канал с помощью кнопки «Настроить каналы…».';
  updateModeUI();
+ if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
 }
 function hideContextMenu(){contextMenu.hidden=true}
 editor.addEventListener('contextmenu',event=>{
@@ -212,7 +213,7 @@ function updateSeriesStatus(){
  const lengths=parts.map(partLength);
  const overflow=lengths.some(length=>length>limit);
  seriesStatus.classList.toggle('warning',overflow);
- seriesStatus.textContent=lengths.map((length,index)=>'Пост '+(index+1)+': '+length+'/'+limit+' символов'+(length>limit?' — превышен лимит, перенеси часть текста в другой пост.':length===limit?' — лимит заполнен.':'')).join('\n');
+ seriesStatus.textContent=lengths.map((length,index)=>'Пост '+(index+1)+': '+length+'/'+limit+' символов'+(length>limit?' — превышен лимит, перенеси часть текста в другой пост.':length===limit?' — лимит заполнен, больше сюда не добавляй; перенеси часть в следующий пост.':'')).join('\n');
  return !overflow;
 }
 function updateModeUI(){

@@ -151,14 +151,16 @@ def _sanitize_plain_html(content: str) -> str:
         node.insert_before("• ")
         node.insert_after(soup.new_tag("br"))
         node.unwrap()
+    for node in list(soup.find_all("br")):
+        node.replace_with("\n")
     for node in list(soup.find_all(["p", "div"])):
-        node.insert_before(soup.new_tag("br"))
-        node.insert_after(soup.new_tag("br"))
+        node.insert_before("\n")
+        node.insert_after("\n")
         node.unwrap()
     for node in list(soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])):
         node.name = "b"
-        node.insert_after(soup.new_tag("br"))
-    allowed = {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "a", "code", "pre", "blockquote", "br"}
+        node.insert_after("\n")
+    allowed = {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "a", "code", "pre", "blockquote"}
     for node in list(soup.find_all(True)):
         if node.name not in allowed:
             node.unwrap()
@@ -292,7 +294,7 @@ async def send_publication(
             return 1
 
     if mode == "plain":
-        is_html = bool(re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6])\\b", text, re.IGNORECASE))
+        is_html = bool(re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6])\b", text, re.IGNORECASE))
         markup = _sanitize_plain_html(text) if is_html else html.escape(text, quote=False)
         visible_text = _plain_text_from_html(markup)
         if len(visible_text) > TEXT_LIMIT and not series:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import html
 import ipaddress
 import re
@@ -280,6 +281,11 @@ def _decode_text_file(path: Path) -> str:
     except UnicodeDecodeError:
         pass
 
+    if data.startswith(codecs.BOM_UTF32_LE) or data.startswith(codecs.BOM_UTF32_BE):
+        return data.decode("utf-32")
+    if data.startswith(codecs.BOM_UTF16_LE) or data.startswith(codecs.BOM_UTF16_BE):
+        return data.decode("utf-16")
+
     detected_text = None
     detected_coherence = 0.0
     try:
@@ -308,7 +314,7 @@ def _decode_text_file(path: Path) -> str:
     if detected_text is not None and "\ufffd" not in detected_text and detected_coherence > 0:
         return detected_text
 
-    for encoding in ("utf-16", "cp1250", "cp1252", "latin-1"):
+    for encoding in ("cp1250", "cp1252", "latin-1"):
         try:
             return data.decode(encoding)
         except (UnicodeDecodeError, LookupError):

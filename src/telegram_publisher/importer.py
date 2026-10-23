@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import codecs
 import html
+import json
 import ipaddress
 import re
 import socket
@@ -145,8 +146,40 @@ def convert_markdown(content: str) -> str:
     return _sanitize_html(rendered)
 
 
+def _page_title(content: str) -> str:
+    """Извлечь заголовок публикации из HTML и метаданных страницы."""
+    soup = BeautifulSoup(content, "html.parser")
+    for selector in (
+        ("meta", {"property": "og:title"}),
+        ("meta", {"name": "twitter:title"}),
+        ("meta", {"name": "title"}),
+        ("h1", {}),
+        ("title", {}),
+    ):
+        node = soup.find(selector[0], attrs=selector[1]) if selector[1] else soup.find(selector[0])
+        if not node:
+            continue
+        value = node.get("content", "") if node.name == "meta" else node.get_text(" ", strip=True)
+        title = BeautifulSoup(str(value), "html.parser").get_text(" ", strip=True)
+        title = re.sub(r"\s+", " ", title).strip()
+        if title:
+            return title
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            payload = json.loads(script.string or script.get_text())
+        except (json.JSONDecodeError, TypeError):
+            continue
+        entries = payload if isinstance(payload, list) else [payload]
+        for entry in entries:
+            if isinstance(entry, dict):
+                title = str(entry.get("headline") or entry.get("name") or "").strip()
+                if title:
+                    return html.unescape(title)
+    return ""
+
+
 def _wordpress_content(url: str) -> str | None:
-    """Попробовать получить содержимое записи или страницы через WordPress REST API."""
+    """Получить содержимое записи WordPress вместе с заголовком."""
     parsed = urlparse(url)
     slug = unquote(parsed.path.rstrip("/").split("/")[-1])
     if not slug:
@@ -156,36 +189,42 @@ def _wordpress_content(url: str) -> str | None:
         api_url = f"{origin}/wp-json/wp/v2/{endpoint}?slug={quote(slug)}&context=view"
         try:
             payload, _ = _download(api_url)
-            import json
             items = json.loads(payload)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, json.JSONDecodeError):
             continue
-        if isinstance(items, list) and items:
-            item = items[0]
-            content = item.get("content", {}).get("rendered")
-            if content:
-                title_markup = item.get("title", {}).get("rendered", "")
-                title = BeautifulSoup(title_markup, "html.parser").get_text(" ", strip=True)
-                if not title:
-                    try:
-                        page_html, _ = _download(url)
-                        page = BeautifulSoup(page_html, "html.parser")
-                        title_node = page.find("h1") or page.find("meta", property="og:title") or page.find("title")
-                        if title_node:
-                            title = (
-                                str(title_node.get("content", "")).strip()
-                                if isinstance(title_node, Tag) and title_node.name == "meta"
-                                else title_node.get_text(" ", strip=True)
-                            )
-                    except ValueError:
-                        pass
-                title_html = f"<h1>{html.escape(title)}</h1>" if title else ""
-                return title_html + _sanitize_html(content, url)
+        if not isinstance(items, list) or not items:
+            continue
+        item = items[0]
+        content = item.get("content", {}).get("rendered")
+        if not content:
+            continue
+        title_data = item.get("title") or {}
+        title = BeautifulSoup(
+            str(title_data.get("rendered") or title_data.get("raw") or ""),
+            "html.parser",
+        ).get_text(" ", strip=True)
+        if not title:
+            seo = item.get("yoast_head_json") or item.get("rank_math_title") or {}
+            if isinstance(seo, dict):
+                title = str(seo.get("title") or seo.get("og_title") or "").strip()
+        if not title:
+            try:
+                page_html, _ = _download(url)
+                title = _page_title(page_html)
+            except ValueError:
+                pass
+        if not title:
+            title = re.sub(r"[-_]+", " ", unquote(str(item.get("slug") or slug))).strip().capitalize()
+        title_html = f"<h1>{html.escape(title)}</h1>" if title else ""
+        cleaned_content = _sanitize_html(content, url)
+        if title and re.search(r"<h1\b[^>]*>\s*"+re.escape(html.escape(title))+r"\s*</h1\s*>", cleaned_content, re.I):
+            title_html = ""
+        return title_html + cleaned_content
     return None
 
-
 def _extract_article(content: str, base_url: str) -> str:
-    """Выделить основное содержимое обычной HTML-страницы."""
+    """Выделить основное содержимое HTML-страницы вместе с заголовком."""
+    title = _page_title(content)
     soup = BeautifulSoup(content, "html.parser")
     for node in list(soup.find_all(DROP_TAGS)):
         node.decompose()
@@ -196,7 +235,12 @@ def _extract_article(content: str, base_url: str) -> str:
         soup.find(attrs={"class": re.compile(r"(post-content|entry-content|article-content|article-body|post-body|content__body)", re.I)}),
     ]
     source = next((candidate for candidate in candidates if candidate and candidate.get_text(" ", strip=True)), soup.body or soup)
-    return _sanitize_html(str(source), base_url)
+    extracted = _sanitize_html(str(source), base_url)
+    if title:
+        escaped_title = html.escape(title)
+        if not re.search(r"<h1\b[^>]*>\s*"+re.escape(escaped_title)+r"\s*</h1\s*>", extracted, re.I):
+            extracted = f"<h1>{escaped_title}</h1>" + extracted
+    return extracted
 
 
 def import_from_url(url: str) -> str:

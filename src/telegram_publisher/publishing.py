@@ -176,7 +176,13 @@ def _sanitize_plain_html(content: str) -> str:
     return soup.decode_contents().strip()
 
 
-def _rich_payload(text: str, image_path: str | None, *, rich_formatting: bool) -> dict:
+def _rich_payload(
+    text: str,
+    image_path: str | None,
+    *,
+    rich_formatting: bool,
+    invisible_media_link: bool = False,
+) -> dict:
     """Сформировать HTML и список медиа для рич-сообщения."""
     body = text if rich_formatting else html.escape(text, quote=False)
     media: list[dict] = []
@@ -192,13 +198,21 @@ def _rich_payload(text: str, image_path: str | None, *, rich_formatting: bool) -
         media_type = "video" if tag.lower().startswith("<video") else "photo"
         media_id = f"publication_media_{len(media) + 1}"
         media.append({"id": media_id, "media": {"type": media_type, "media": url}})
+        if invisible_media_link:
+            target = "video" if media_type == "video" else "photo"
+            return f'<a href="tg://{target}?id={media_id}">\u2063</a>'
         label = "Видео" if media_type == "video" else "Изображение"
         if media_type == "photo":
             return f'<img src="tg://photo?id={media_id}" alt="{label}">'
-        return f'<video controls src="tg://video?id={media_id}">'
+        return f'<video controls src="tg://video?id={media_id}"></video>'
 
     if rich_formatting:
-        body = re.sub(r"<(?:img|video)\b[^>]*>", replace_media, body, flags=re.IGNORECASE)
+        body = re.sub(
+            r"<img\b[^>]*>|<video\b[^>]*>.*?</video\s*>",
+            replace_media,
+            body,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
     rich_message: dict = {"html": body}
     if image_path:
         media.append(
@@ -207,11 +221,44 @@ def _rich_payload(text: str, image_path: str | None, *, rich_formatting: bool) -
                 "media": {"type": "photo", "media": "attach://photo"},
             }
         )
-        rich_message["html"] += '\n\n<img src="tg://photo?id=publication_photo" alt="Изображение">'
+        if invisible_media_link:
+            rich_message["html"] += '\n\n<a href="tg://photo?id=publication_photo">\u2063</a>'
+        else:
+            rich_message["html"] += '\n\n<img src="tg://photo?id=publication_photo" alt="Изображение">'
     if media:
         rich_message["media"] = media
     return rich_message
 
+
+
+def _plain_media_payload(content: str, image_path: str | None = None) -> dict | None:
+    """Подготовить обычное сообщение с не более чем одним медиа через невидимую ссылку."""
+    soup = BeautifulSoup(content, "html.parser")
+    media_nodes = list(soup.find_all(["img", "video"]))
+    if len(media_nodes) > 1:
+        raise ValueError("В одном обычном сообщении допускается только одно изображение или видео.")
+    if media_nodes and image_path:
+        raise ValueError("В одном обычном сообщении допускается только одно медиа. Удали встроенное изображение или отдельный файл.")
+    media_markup = ""
+    if media_nodes:
+        media_node = media_nodes[0]
+        source = str(media_node.get("src", "")).strip()
+        if not source.lower().startswith(("https://", "http://")):
+            raise ValueError("Для медиа в обычном сообщении укажи публичный URL, начинающийся с http:// или https://.")
+        media_markup = str(media_node)
+        media_node.decompose()
+    if not media_markup and not image_path:
+        return None
+    safe_text = _sanitize_plain_html(soup.decode_contents())
+    payload = _rich_payload(
+        safe_text + media_markup,
+        image_path,
+        rich_formatting=True,
+        invisible_media_link=True,
+    )
+    if not payload.get("media"):
+        raise ValueError("Не удалось подготовить изображение или видео для публикации.")
+    return payload
 
 async def _send_rich(
     token: str,
@@ -294,27 +341,38 @@ async def send_publication(
             return 1
 
     if mode == "plain":
-        is_html = bool(re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6])\b", text, re.IGNORECASE))
-        markup = _sanitize_plain_html(text) if is_html else html.escape(text, quote=False)
-        visible_text = _plain_text_from_html(markup)
+        is_html = bool(re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6]|img|video)\b", text, re.IGNORECASE))
+        markup = text if is_html else html.escape(text, quote=False)
+        visible_text = _plain_text_from_html(_sanitize_plain_html(markup))
         if len(visible_text) > TEXT_LIMIT and not series:
             raise ValueError("Обычное сообщение ограничено 4096 символами. Включи серию публикаций.")
         if parts:
-            prepared_parts = [_sanitize_plain_html(part) for part in parts]
+            prepared_parts = [
+                part if re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6]|img|video)\b", part, re.IGNORECASE)
+                else html.escape(part, quote=False)
+                for part in parts
+            ]
         elif len(visible_text) <= TEXT_LIMIT:
             prepared_parts = [markup]
         elif series:
-            # Для старого интерфейса без разрывов сохраняется разбиение обычного текста.
             prepared_parts = [html.escape(part, quote=False) for part in split_text(visible_text, TEXT_LIMIT)]
         else:
             prepared_parts = [markup]
         for index, part in enumerate(prepared_parts, start=1):
-            part_length = len(_plain_text_from_html(part))
+            safe_part = _sanitize_plain_html(part)
+            part_length = len(_plain_text_from_html(safe_part))
             if part_length > TEXT_LIMIT:
                 raise ValueError(f"Пост {index} превышает лимит обычного сообщения Telegram ({TEXT_LIMIT} символов).")
+            media_nodes = BeautifulSoup(part, "html.parser").find_all(["img", "video"])
+            if len(media_nodes) > 1:
+                raise ValueError(f"Пост {index}: в обычном сообщении допускается только одно изображение или видео.")
         async with Bot(token=token) as bot:
-            for part in prepared_parts:
-                await bot.send_message(chat_id=chat_id, text=part, parse_mode="HTML")
+            for index, part in enumerate(prepared_parts):
+                payload = _plain_media_payload(part, image_path if index == 0 else None)
+                if payload:
+                    await asyncio.to_thread(_multipart_request, token, chat_id, payload, image_path if index == 0 else None)
+                else:
+                    await bot.send_message(chat_id=chat_id, text=_sanitize_plain_html(part), parse_mode="HTML")
         return len(prepared_parts)
 
     if mode == "media_text":

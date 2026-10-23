@@ -111,3 +111,37 @@ def test_rich_payload_ignores_non_public_media_urls() -> None:
     payload = _rich_payload('<img src="file:///private/photo.png">', None, rich_formatting=True)
     assert "media" not in payload
     assert payload["html"] == ""
+
+
+def test_plain_media_payload_uses_one_invisible_link() -> None:
+    from telegram_publisher.publishing import _plain_media_payload
+
+    payload = _plain_media_payload(
+        '<p><strong>Текст</strong></p><img src="https://example.org/image.jpg">'
+    )
+    assert payload is not None
+    assert payload["media"] == [{
+        "id": "publication_media_1",
+        "media": {"type": "photo", "media": "https://example.org/image.jpg"},
+    }]
+    assert '<strong>Текст</strong>' in payload["html"]
+    assert '<a href="tg://photo?id=publication_media_1">\u2063</a>' in payload["html"]
+    assert "<img" not in payload["html"]
+
+
+def test_plain_media_payload_rejects_multiple_media() -> None:
+    from telegram_publisher.publishing import _plain_media_payload
+
+    with pytest.raises(ValueError, match="только одно"):
+        _plain_media_payload(
+            '<img src="https://example.org/a.jpg"><video src="https://example.org/b.mp4"></video>'
+        )
+
+
+def test_plain_media_payload_supports_video() -> None:
+    from telegram_publisher.publishing import _plain_media_payload
+
+    payload = _plain_media_payload('<p>Текст</p><video controls src="https://example.org/movie.mp4"></video>')
+    assert payload is not None
+    assert payload["media"][0]["media"]["type"] == "video"
+    assert '<a href="tg://video?id=publication_media_1">\u2063</a>' in payload["html"]

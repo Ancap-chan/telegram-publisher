@@ -82,6 +82,10 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
     for node in list(soup.find_all(True)):
         if not isinstance(node, Tag):
             continue
+        if node.name == "img" and not node.get("src"):
+            lazy_src = node.get("data-src") or node.get("data-lazy-src")
+            if lazy_src:
+                node["src"] = lazy_src
         if node.name not in ALLOWED_TAGS:
             node.unwrap()
             continue
@@ -198,6 +202,19 @@ def _docx_html(path: Path) -> str:
                 value = f"<u>{value}</u>"
             text_parts.append(value)
         content = "".join(text_parts)
+        for hyperlink in paragraph._p.xpath(".//w:hyperlink"):
+            relation_id = hyperlink.get(qn("r:id"))
+            if not relation_id or relation_id not in document.part.rels:
+                continue
+            target = document.part.rels[relation_id].target_ref
+            label = "".join(node.text or "" for node in hyperlink.xpath(".//w:t"))
+            if label and target:
+                escaped_label = html.escape(label)
+                link = f'<a href="{html.escape(target, quote=True)}">{escaped_label}</a>'
+                if escaped_label in content:
+                    content = content.replace(escaped_label, link, 1)
+                else:
+                    content += link
         if not content:
             continue
         style = paragraph.style.name.lower() if paragraph.style else ""
@@ -209,40 +226,36 @@ def _docx_html(path: Path) -> str:
             output.append(f"<p>• {content}</p>")
         else:
             output.append(f"<p>{content}</p>")
-    # Гиперссылки Word хранятся в XML отдельно от обычных runs.
-    for paragraph, block in zip(document.paragraphs, output):
-        for hyperlink in paragraph._p.xpath(".//w:hyperlink"):
-            relation_id = hyperlink.get(qn("r:id"))
-            if not relation_id or relation_id not in document.part.rels:
-                continue
-            target = document.part.rels[relation_id].target_ref
-            label = "".join(node.text or "" for node in hyperlink.xpath(".//w:t"))
-            if label and target:
-                block = block.replace(html.escape(label), f'<a href="{html.escape(target, quote=True)}">{html.escape(label)}</a>', 1)
-        output[output.index(output[output.index(block)])] = block if block in output else block
     return "".join(output)
 
 
 def _odt_html(path: Path) -> str:
-    """Преобразовать абзацы и заголовки ODT в HTML."""
+    """Преобразовать абзацы и заголовки ODT в HTML в исходном порядке."""
     from odf import teletype
     from odf.opendocument import load
-    from odf.text import H, P
+    from odf.text import H, List, ListItem, P
 
     document = load(str(path))
     output: list[str] = []
-    for node in document.getElementsByType(H) + document.getElementsByType(P):
-        content = html.escape(teletype.extractText(node)).replace("\n", "<br>")
-        if not content.strip():
-            continue
-        if node.qname[1] == "h":
-            level = node.getAttribute("outlinelevel") or "2"
-            level = str(max(1, min(6, int(level))))
-            output.append(f"<h{level}>{content}</h{level}>")
-        else:
-            output.append(f"<p>{content}</p>")
-    return "".join(output)
 
+    def walk(node: object) -> None:
+        for child in getattr(node, "childNodes", []):
+            qname = getattr(child, "qname", None)
+            if qname in {H.qname, P.qname}:
+                content = html.escape(teletype.extractText(child)).replace("\n", "<br>")
+                if not content.strip():
+                    continue
+                if qname == H.qname:
+                    level = getattr(child, "getAttribute")("outlinelevel") or "2"
+                    level = str(max(1, min(6, int(level))))
+                    output.append(f"<h{level}>{content}</h{level}>")
+                else:
+                    output.append(f"<p>{content}</p>")
+            elif qname in {List.qname, ListItem.qname} or getattr(child, "childNodes", None):
+                walk(child)
+
+    walk(document.text)
+    return "".join(output)
 
 def import_from_file(path: Path) -> str:
     """Импортировать текстовый, HTML, Markdown, DOCX или ODT-файл."""

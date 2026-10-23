@@ -110,10 +110,10 @@ def _multipart_request(
     add_field("chat_id", chat_id)
     upload_files = message.pop("_upload_files", [])
     if method == "sendMessage":
+        if message.get("media"):
+            raise ValueError("Метод sendMessage не поддерживает поле media. Для обычного сообщения используй невидимую ссылку на публичный URL.")
         add_field("text", str(message.get("html", "")))
         add_field("parse_mode", "HTML")
-        if message.get("media"):
-            add_field("media", json.dumps(message["media"], ensure_ascii=False))
     else:
         add_field("rich_message", json.dumps(message, ensure_ascii=False))
 

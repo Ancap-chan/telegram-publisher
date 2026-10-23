@@ -168,3 +168,30 @@ def test_rich_payload_uploads_pasted_data_uri_image() -> None:
     assert payload['_upload_files'][0]['field'] == 'inline_media_1'
     assert payload['_upload_files'][0]['data'] == b'hello'
     assert 'tg://photo?id=publication_media_1' in payload['html']
+
+
+
+def test_plain_media_payload_keeps_image_inside_formatted_text() -> None:
+    from telegram_publisher.publishing import _plain_media_payload
+
+    payload = _plain_media_payload(
+        '<p><strong>До <img src="https://example.org/image.jpg"> после</strong></p>'
+    )
+    assert payload is not None
+    assert payload["media"][0]["media"]["media"] == "https://example.org/image.jpg"
+    assert "<strong>До " in payload["html"]
+    assert '<a href="tg://photo?id=publication_media_1">\u2063</a>' in payload["html"]
+    assert " после</strong>" in payload["html"]
+
+
+def test_plain_media_payload_keeps_formatted_text_with_data_uri_image() -> None:
+    from telegram_publisher.publishing import _plain_media_payload
+
+    payload = _plain_media_payload(
+        '<p><em>До <img src="data:image/png;base64,aGVsbG8="> после</em></p>'
+    )
+    assert payload is not None
+    assert payload["media"][0]["media"]["media"] == "attach://inline_media_1"
+    assert payload["_upload_files"][0]["data"] == b"hello"
+    assert "<em>До " in payload["html"]
+    assert " после</em>" in payload["html"]

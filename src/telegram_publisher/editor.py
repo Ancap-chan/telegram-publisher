@@ -616,11 +616,12 @@ document.getElementById('publish').onclick=async()=>{
   document.getElementById('status').textContent='Исправь превышение лимита или оставь не более одного медиа на пост перед публикацией.';
   return;
  }
- if(!confirm('Опубликовать пост в выбранном канале?'))return;
+ const usesSendMessage=modeSelect.value==='plain'||modeSelect.value==='plain_series';
+ if(!usesSendMessage&&!confirm('Опубликовать пост в выбранном канале?'))return;
  const publishButton=document.getElementById('publish');
  publishButton.disabled=true;
- document.getElementById('status').textContent='Подготовка публикации…';
- try{await window.pywebview.api.publish(currentResult('publish'));}
+ document.getElementById('status').textContent=usesSendMessage?'Отправка: ожидается финальная правка…':'Подготовка публикации…';
+ try{await window.pywebview.api.publish(currentResult(usesSendMessage?'review_publish':'publish'));}
  catch(error){
   publishButton.disabled=false;
   document.getElementById('status').textContent='Не удалось начать публикацию: '+(error&&error.message?error.message:String(error));

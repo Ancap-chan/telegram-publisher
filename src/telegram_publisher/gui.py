@@ -78,6 +78,7 @@ class PublisherWindow:
         self.root.minsize(620, 480)
         self.image_path: str | None = None
         self.html_content = ""
+        self.editor_parts: list[str] | None = None
         self.editor_mode = "rich"
         self.editor_status = ""
         self.publishing_from_editor = False
@@ -457,6 +458,8 @@ class PublisherWindow:
         if "html" not in result:
             return
         self.html_content = str(result.get("html", ""))
+        raw_parts = result.get("parts")
+        self.editor_parts = [str(part) for part in raw_parts] if isinstance(raw_parts, list) and raw_parts else None
         self.editor_mode = str(result.get("mode", "rich"))
         self.selected_profile_id = result.get("profile_id") or None
         self.series_var.set(bool(result.get("series", False)))
@@ -608,7 +611,7 @@ class PublisherWindow:
             if from_editor
             else self.mode_values.get(self.mode_combo.get(), "auto")
         )
-        content = self.html_content if mode in {"rich", "rich_series", "media_text"} else plain_content
+        content = self.html_content if from_editor or mode in {"rich", "rich_series", "media_text"} else plain_content
         if not plain_content and not self.image_path and not content.strip():
             if from_editor:
                 self._write_editor_status("Добавь текст, изображение или видео перед публикацией.")
@@ -651,7 +654,7 @@ class PublisherWindow:
         self._write_editor_status("Отправка публикации…")
         thread = threading.Thread(
             target=self._send_in_background,
-            args=(profile, content, self.image_path, mode, series),
+            args=(profile, content, self.image_path, mode, series, self.editor_parts if from_editor and series else None),
             daemon=True,
         )
         thread.start()
@@ -663,10 +666,11 @@ class PublisherWindow:
         image_path: str | None,
         mode: str,
         series: bool,
+        parts: list[str] | None = None,
     ) -> None:
         try:
             count = publish_sync(
-                profile.token, profile.chat_id, content, image_path, mode, series
+                profile.token, profile.chat_id, content, image_path, mode, series, parts=parts
             )
         except Exception as error:
             self.root.after(0, self._send_failed, str(error))

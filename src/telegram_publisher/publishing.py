@@ -204,7 +204,7 @@ def _rich_payload(
         label = "Видео" if media_type == "video" else "Изображение"
         if media_type == "photo":
             return f'<img src="tg://photo?id={media_id}" alt="{label}">'
-        return f'<video controls src="tg://video?id={media_id}">'
+        return f'<video controls src="tg://video?id={media_id}"></video>'
 
     if rich_formatting:
         body = re.sub(

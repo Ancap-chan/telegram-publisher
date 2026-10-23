@@ -117,10 +117,10 @@ function restoreEditorSelection(){
 }
 function cleanClipboardHtml(markup){
  const parsed=new DOMParser().parseFromString(markup,'text/html');
- const sourceMatch=String(markup).match(/(?:SourceURL:|sourceurl\\s*=\\s*["'])(https?:\\/\\/[^\\s"'<>]+)/i);
+ const sourceMatch=String(markup).match(/(?:SourceURL:|sourceurl\s*=\s*["'])(https?:\/\/[^\s"'<>]+)/i);
  let baseUrl=sourceMatch?sourceMatch[1]:null;
  const baseElement=parsed.querySelector('base[href]');
- if(baseElement&&/^https?:\\/\\//i.test(baseElement.href))baseUrl=baseElement.href;
+ if(baseElement&&/^https?:\/\//i.test(baseElement.href))baseUrl=baseElement.href;
  let removedImages=0;
  const publicUrl=value=>{
   const candidate=String(value||'').trim();
@@ -133,7 +133,7 @@ function cleanClipboardHtml(markup){
  const srcsetUrl=value=>{
   if(!value)return null;
   for(const item of value.split(',')){
-   const resolved=publicUrl(item.trim().split(/\\s+/)[0]);
+   const resolved=publicUrl(item.trim().split(/\s+/)[0]);
    if(resolved)return resolved;
   }
   return null;

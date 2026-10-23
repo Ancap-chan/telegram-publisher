@@ -8,6 +8,8 @@ from pathlib import Path
 
 import webview
 
+from .importer import import_from_file, import_from_url
+
 
 EDITOR_HTML = r"""<!doctype html>
 <html lang="ru">
@@ -39,6 +41,7 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 </head>
 <body>
 <header>
+<button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button>
 <button data-cmd="bold"><b>Жирный</b></button><button data-cmd="italic"><i>Курсив</i></button><button data-cmd="underline"><u>Подчёркнутый</u></button><button data-cmd="strikeThrough"><s>Зачёркнутый</s></button>
 <button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button data-cmd="formatBlock" data-value="h2">Заголовок</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
 <button id="link">Ссылка</button><button id="image">Изображение по URL</button><button id="video">Видео по URL</button><button id="table">Таблица</button><button data-cmd="removeFormat">Очистить формат</button>
@@ -132,6 +135,27 @@ contextMenu.querySelectorAll('[data-edit]').forEach(button=>button.addEventListe
   document.execCommand('paste',false,null);
  }
 }));
+async function setImportedContent(promise){
+ const status=document.getElementById('status');
+ status.textContent='Импорт…';
+ try{
+  const html=await promise;
+  if(html===null||html===undefined)return;
+  if(!String(html).trim())throw new Error('В источнике не найден текст.');
+  editor.innerHTML=html;
+  status.textContent='Импорт завершён. Проверь содержимое и при необходимости отредактируй его.';
+  editor.focus();
+ }catch(error){status.textContent='Не удалось импортировать: '+(error&&error.message?error.message:String(error));}
+}
+document.getElementById('import-url').onclick=async()=>{
+ const url=prompt('Вставь ссылку на публикацию или страницу','https://');
+ if(!url)return;
+ if(!/^https?:\\/\\//i.test(url.trim())){document.getElementById('status').textContent='Укажи полный URL, начинающийся с http:// или https://.';return;}
+ await setImportedContent(window.pywebview.api.import_url(url.trim()));
+};
+document.getElementById('import-file').onclick=async()=>{
+ await setImportedContent(window.pywebview.api.import_file());
+};
 document.querySelectorAll('[data-cmd]').forEach(button=>button.addEventListener('click',()=>{
  editor.focus();const cmd=button.dataset.cmd;document.execCommand(cmd,false,button.dataset.value||null);
 }));
@@ -178,6 +202,28 @@ class EditorApi:
         self.output_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
         self.window.destroy()
 
+    def import_url(self, url: str) -> str:
+        """Загрузить публикацию по URL и вернуть HTML для редактора."""
+        return import_from_url(url)
+
+    def import_file(self) -> str | None:
+        """Предложить выбрать локальный файл и преобразовать его в HTML."""
+        paths = self.window.create_file_dialog(
+            webview.OPEN_DIALOG,
+            allow_multiple=False,
+            file_types=(
+                "Поддерживаемые документы (*.txt;*.html;*.htm;*.md;*.markdown;*.docx;*.odt)",
+                "Текстовые файлы (*.txt)",
+                "HTML (*.html;*.htm)",
+                "Markdown (*.md;*.markdown)",
+                "Документы Word (*.docx)",
+                "Документы OpenDocument (*.odt)",
+            ),
+        )
+        if not paths:
+            return None
+        return import_from_file(Path(paths[0]))
+
 
 def main() -> None:
     if len(sys.argv) != 4:
@@ -192,7 +238,7 @@ def main() -> None:
         height=850,
     )
     api = EditorApi(output_path, window)
-    window.expose(api.finish)
+    window.expose(api.finish, api.import_url, api.import_file)
 
     def initialize() -> None:
         window.evaluate_js(

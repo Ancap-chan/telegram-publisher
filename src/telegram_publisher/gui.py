@@ -480,7 +480,9 @@ class PublisherWindow:
         dialog.title("Финальная правка текста sendMessage")
         dialog.geometry("900x620")
         dialog.minsize(620, 420)
-        dialog.transient(self.root)
+        # Главное окно скрыто, пока открыт визуальный редактор. Не связываем
+        # диалог с ним через transient: некоторые оконные менеджеры скрывают
+        # такой диалог вместе с владельцем.
         dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
 
         frame = ttk.Frame(dialog, padding=12)
@@ -536,9 +538,14 @@ class PublisherWindow:
 
         ttk.Button(buttons, text="Отмена", command=cancel).pack(side=tk.RIGHT)
         ttk.Button(buttons, text="Отправить", command=send).pack(side=tk.RIGHT, padx=(0, 8))
+        # Явно показываем и поднимаем диалог: главное окно приложения
+        # в этот момент скрыто методом withdraw().
+        dialog.deiconify()
+        dialog.lift()
+        dialog.focus_force()
+        dialog.grab_set()
         if editors:
             editors[0].focus_set()
-        dialog.grab_set()
         self._write_editor_status("Отправка: ожидается финальная правка текста…")
         self.root.wait_window(dialog)
 

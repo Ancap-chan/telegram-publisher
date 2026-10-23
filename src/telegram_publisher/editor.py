@@ -150,7 +150,8 @@ async function setImportedContent(promise){
 document.getElementById('import-url').onclick=async()=>{
  const url=prompt('Вставь ссылку на публикацию или страницу','https://');
  if(!url)return;
- if(!/^https?:\\/\\//i.test(url.trim())){document.getElementById('status').textContent='Укажи полный URL, начинающийся с http:// или https://.';return;}
+ const trimmedUrl=url.trim();
+ if(!trimmedUrl.toLowerCase().startsWith('http://')&&!trimmedUrl.toLowerCase().startsWith('https://')){document.getElementById('status').textContent='Укажи полный URL, начинающийся с http:// или https://.';return;}
  await setImportedContent(window.pywebview.api.import_url(url.trim()));
 };
 document.getElementById('import-file').onclick=async()=>{

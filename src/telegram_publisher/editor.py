@@ -186,6 +186,21 @@ function insertMediaFromUrl(kind){
  const label=kind==='image'?'Публичный URL изображения':'Публичный URL видео';
  const url=askUrl(label);
  if(!url)return;
+ let parsed;
+ try{parsed=new URL(url)}catch(error){document.getElementById('status').textContent='Не удалось разобрать адрес.';return}
+ const host=parsed.hostname.toLowerCase().replace(/^www\./,'');
+ if(kind==='video'&&(host==='youtube.com'||host.endsWith('.youtube.com')||host==='youtu.be'||host==='youtube-nocookie.com'||host.endsWith('.youtube-nocookie.com'))){
+  const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+  editor.focus();
+  document.execCommand('insertHTML',false,'<p><a href="'+safe+'">'+safe+'</a></p>');
+  document.getElementById('status').textContent='Это ссылка на YouTube, а не прямой видеофайл. Добавлена ссылка на ролик; Telegram может показать предпросмотр.';
+  updateSeriesStatus();
+  return;
+ }
+ if(kind==='video'&&!/\.(mp4|m4v|mov|webm|mkv)(?:$|[?#])/i.test(parsed.pathname+parsed.search+parsed.hash)){
+  document.getElementById('status').textContent='Для вставки видео нужен прямой URL видеофайла (например, MP4 или WebM). Для YouTube добавляется ссылка на ролик.';
+  return;
+ }
  editor.focus();
  const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
  const markup=kind==='image'?'<p><img src="'+safe+'" alt=""></p>':'<p><video controls src="'+safe+'"></video></p>';
@@ -204,7 +219,7 @@ function makeBreak(){
  const marker=document.createElement('div');
  marker.className='series-break';
  marker.contentEditable='false';
- marker.draggable=true;
+ marker.draggable=false;
  marker.dataset.postBreak='1';
  marker.textContent='Разрыв сообщения — перетащи, чтобы переместить';
  return marker;
@@ -374,49 +389,61 @@ function insertBreakAtSelection(){
 }
 document.getElementById('insert-break').addEventListener('click',insertBreakAtSelection);
 editor.addEventListener('input',updateSeriesStatus);
-editor.addEventListener('dragstart',event=>{
+let pointerDrag=null;
+editor.addEventListener('pointerdown',event=>{
  const marker=event.target.closest('.series-break');
- if(!marker||!isSeriesMode())return;
+ if(!marker||!isSeriesMode()||event.button!==0)return;
  draggedBreak=marker;
+ pointerDrag={pointerId:event.pointerId};
  marker.classList.add('dragging');
- event.dataTransfer.setData('text/plain','series-break');
- event.dataTransfer.effectAllowed='move';
+ event.preventDefault();
 });
-editor.addEventListener('dragend',event=>{
+document.addEventListener('pointerup',event=>{
+ if(!draggedBreak||!pointerDrag||event.pointerId!==pointerDrag.pointerId)return;
+ const marker=draggedBreak;
+ marker.classList.remove('dragging');
+ draggedBreak=null;
+ pointerDrag=null;
+ if(!isSeriesMode())return;
+ let range=null;
+ if(document.caretRangeFromPoint)range=document.caretRangeFromPoint(event.clientX,event.clientY);
+ else if(document.caretPositionFromPoint){
+  const position=document.caretPositionFromPoint(event.clientX,event.clientY);
+  if(position){range=document.createRange();range.setStart(position.offsetNode,position.offset);range.collapse(true)}
+ }
+ let target=range?range.startContainer:null;
+ while(target&&target.parentNode!==editor)target=target.parentNode;
+ if(!target){
+  const hit=document.elementFromPoint(event.clientX,event.clientY);
+  target=hit;
+  while(target&&target.parentNode!==editor)target=target.parentNode;
+ }
+ if(target===marker)return;
+ if(target){
+  let before=target;
+  const rect=target.nodeType===Node.ELEMENT_NODE?target.getBoundingClientRect():null;
+  if(rect&&event.clientY>rect.top+rect.height/2)before=target.nextSibling;
+  if(before!==marker&&before!==marker.nextSibling)editor.insertBefore(marker,before);
+ }else editor.appendChild(marker);
+ updateSeriesStatus();
+});
+document.addEventListener('pointercancel',()=>{
  if(draggedBreak)draggedBreak.classList.remove('dragging');
  draggedBreak=null;
-});
-editor.addEventListener('dragover',event=>{if(isSeriesMode()&&event.target.closest('#editor'))event.preventDefault()});
-editor.addEventListener('drop',event=>{
- if(!isSeriesMode()||!draggedBreak)return;
- event.preventDefault();
- let target=null;
- if(document.caretRangeFromPoint){
-  const range=document.caretRangeFromPoint(event.clientX,event.clientY);
-  target=range?range.startContainer:null;
- }
- if(!target)target=event.target;
- while(target&&target.parentNode!==editor)target=target.parentNode;
- if(target===draggedBreak)return;
- if(target){
-  const rect=target.nodeType===Node.ELEMENT_NODE?target.getBoundingClientRect():null;
-  const after=rect&&event.clientY>rect.top+rect.height/2;
-  editor.insertBefore(draggedBreak,after?target.nextSibling:target);
- }else editor.appendChild(draggedBreak);
- draggedBreak.classList.remove('dragging');
- draggedBreak=null;
- updateSeriesStatus();
+ pointerDrag=null;
 });
 modeSelect.addEventListener('change',()=>{
  seriesCheckbox.checked=modeSelect.value.endsWith('_series');
  if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
+ else editor.querySelectorAll('.series-break').forEach(node=>node.remove());
  updateModeUI();
 });
 seriesCheckbox.addEventListener('change',()=>{
  if(seriesCheckbox.checked&&modeSelect.value==='plain')modeSelect.value='plain_series';
  if(seriesCheckbox.checked&&modeSelect.value==='rich')modeSelect.value='rich_series';
  if(!seriesCheckbox.checked&&modeSelect.value.endsWith('_series'))modeSelect.value=modeSelect.value==='plain_series'?'plain':'rich';
- if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
+ if(seriesCheckbox.checked&&modeSelect.value.endsWith('_series'))autoPlaceBreaks();
+ else editor.querySelectorAll('.series-break').forEach(node=>node.remove());
  updateModeUI();
 });
 function currentResult(action){

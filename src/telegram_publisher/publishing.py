@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import html
 import json
 import mimetypes
@@ -10,7 +11,7 @@ import re
 import uuid
 from pathlib import Path
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, Comment, Tag
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -96,6 +97,7 @@ def _multipart_request(token: str, chat_id: str, rich_message: dict, image_path:
         body.extend(b"\r\n")
 
     add_field("chat_id", chat_id)
+    upload_files = rich_message.pop("_upload_files", [])
     add_field("rich_message", json.dumps(rich_message, ensure_ascii=False))
 
     if image_path:
@@ -107,6 +109,18 @@ def _multipart_request(token: str, chat_id: str, rich_message: dict, image_path:
         )
         body.extend(f"Content-Type: {mime_type}\r\n\r\n".encode("ascii"))
         body.extend(path.read_bytes())
+        body.extend(b"\r\n")
+
+    for upload in upload_files:
+        field = str(upload["field"])
+        filename = str(upload["filename"])
+        mime_type = str(upload["mime_type"])
+        body.extend(f"--{boundary}\r\n".encode("ascii"))
+        body.extend(
+            f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'.encode("utf-8")
+        )
+        body.extend(f"Content-Type: {mime_type}\r\n\r\n".encode("ascii"))
+        body.extend(upload["data"])
         body.extend(b"\r\n")
 
     body.extend(f"--{boundary}--\r\n".encode("ascii"))
@@ -143,6 +157,8 @@ def _plain_text_from_html(content: str) -> str:
 def _sanitize_plain_html(content: str) -> str:
     """Оставить только форматирование, поддерживаемое обычными сообщениями Telegram."""
     soup = BeautifulSoup(content, "html.parser")
+    for comment in soup.find_all(string=lambda value: isinstance(value, Comment)):
+        comment.extract()
     for node in soup.find_all(["script", "style", "img", "video", "table", "iframe"]):
         node.decompose()
     for node in list(soup.find_all(["ul", "ol"])):
@@ -185,7 +201,10 @@ def _rich_payload(
 ) -> dict:
     """Сформировать HTML и список медиа для рич-сообщения."""
     body = text if rich_formatting else html.escape(text, quote=False)
+    if rich_formatting:
+        body = re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL)
     media: list[dict] = []
+    upload_files: list[dict] = []
 
     def replace_media(match: re.Match[str]) -> str:
         tag = match.group(0)
@@ -193,11 +212,32 @@ def _rich_payload(
         if not source:
             return ""
         url = html.unescape(source.group(2)).strip()
-        if not url.lower().startswith(("https://", "http://")):
-            return ""
         media_type = "video" if tag.lower().startswith("<video") else "photo"
         media_id = f"publication_media_{len(media) + 1}"
-        media.append({"id": media_id, "media": {"type": media_type, "media": url}})
+        if url.lower().startswith(("https://", "http://")):
+            media.append({"id": media_id, "media": {"type": media_type, "media": url}})
+        elif media_type == "photo" and re.match(r"^data:image/(png|jpeg|jpg|gif|webp);base64,", url, re.I):
+            header, encoded = url.split(",", 1)
+            try:
+                image_bytes = base64.b64decode(encoded, validate=True)
+            except (ValueError, base64.binascii.Error):
+                return ""
+            subtype_match = re.match(r"^data:image/([^;]+)", header, re.I)
+            if not subtype_match:
+                return ""
+            subtype = subtype_match.group(1).lower()
+            mime_type = "image/jpeg" if subtype in {"jpg", "jpeg"} else f"image/{subtype}"
+            extension = "jpg" if subtype in {"jpg", "jpeg"} else subtype
+            field = f"inline_media_{len(upload_files) + 1}"
+            upload_files.append({
+                "field": field,
+                "filename": f"{field}.{extension}",
+                "mime_type": mime_type,
+                "data": image_bytes,
+            })
+            media.append({"id": media_id, "media": {"type": "photo", "media": f"attach://{field}"}})
+        else:
+            return ""
         if invisible_media_link:
             target = "video" if media_type == "video" else "photo"
             return f'<a href="tg://{target}?id={media_id}">\u2063</a>'
@@ -227,6 +267,8 @@ def _rich_payload(
             rich_message["html"] += '\n\n<img src="tg://photo?id=publication_photo" alt="Изображение">'
     if media:
         rich_message["media"] = media
+    if upload_files:
+        rich_message["_upload_files"] = upload_files
     return rich_message
 
 
@@ -243,8 +285,8 @@ def _plain_media_payload(content: str, image_path: str | None = None) -> dict | 
     if media_nodes:
         media_node = media_nodes[0]
         source = str(media_node.get("src", "")).strip()
-        if not source.lower().startswith(("https://", "http://")):
-            raise ValueError("Для медиа в обычном сообщении укажи публичный URL, начинающийся с http:// или https://.")
+        if not source.lower().startswith(("https://", "http://", "data:image/png;base64,", "data:image/jpeg;base64,", "data:image/jpg;base64,", "data:image/gif;base64,", "data:image/webp;base64,")):
+            raise ValueError("Для медиа в обычном сообщении укажи публичный URL или вставь изображение из буфера обмена.")
         media_markup = str(media_node)
         media_node.decompose()
     if not media_markup and not image_path:

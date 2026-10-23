@@ -115,11 +115,67 @@ function restoreEditorSelection(){
  selection.addRange(savedRange);
  return true;
 }
+function cleanClipboardHtml(markup){
+ const parsed=new DOMParser().parseFromString(markup,'text/html');
+ const sourceMatch=String(markup).match(/(?:SourceURL:|sourceurl\\s*=\\s*["'])(https?:\\/\\/[^\\s"'<>]+)/i);
+ let baseUrl=sourceMatch?sourceMatch[1]:null;
+ const baseElement=parsed.querySelector('base[href]');
+ if(baseElement&&/^https?:\\/\\//i.test(baseElement.href))baseUrl=baseElement.href;
+ let removedImages=0;
+ const publicUrl=value=>{
+  const candidate=String(value||'').trim();
+  if(!candidate||candidate.startsWith('data:')||candidate.startsWith('blob:'))return null;
+  try{
+   const resolved=new URL(candidate,baseUrl||undefined);
+   return /^https?:$/.test(resolved.protocol)?resolved.href:null;
+  }catch(_error){return null}
+ };
+ const srcsetUrl=value=>{
+  if(!value)return null;
+  for(const item of value.split(',')){
+   const resolved=publicUrl(item.trim().split(/\\s+/)[0]);
+   if(resolved)return resolved;
+  }
+  return null;
+ };
+ for(const image of Array.from(parsed.querySelectorAll('img'))){
+  const candidates=[
+   image.getAttribute('src'),
+   image.getAttribute('data-src'),
+   image.getAttribute('data-original'),
+   image.getAttribute('data-lazy-src'),
+   srcsetUrl(image.getAttribute('srcset')),
+   srcsetUrl(image.getAttribute('data-srcset'))
+  ];
+  let imageUrl=null;
+  for(const candidate of candidates){
+   imageUrl=publicUrl(candidate);
+   if(imageUrl)break;
+  }
+  if(!imageUrl){image.remove();removedImages++;continue}
+  image.setAttribute('src',imageUrl);
+  for(const attribute of ['srcset','data-src','data-original','data-lazy-src','data-srcset','loading'])image.removeAttribute(attribute);
+ }
+ for(const video of Array.from(parsed.querySelectorAll('video'))){
+  const url=publicUrl(video.getAttribute('src')||video.querySelector('source')?.getAttribute('src'));
+  if(!url){video.remove();continue}
+  video.setAttribute('src',url);
+  video.querySelectorAll('source').forEach(source=>source.remove());
+ }
+ parsed.querySelectorAll('script,style,base,meta,link').forEach(node=>node.remove());
+ return {html:parsed.body.innerHTML,removedImages};
+}
 function insertClipboardHtml(markup){
+ const cleaned=cleanClipboardHtml(markup);
  restoreEditorSelection();
- document.execCommand('insertHTML',false,markup);
+ document.execCommand('insertHTML',false,cleaned.html);
  rememberEditorSelection();
  updateSeriesStatus();
+ if(cleaned.removedImages){
+  document.getElementById('status').textContent=cleaned.removedImages===1
+   ?'Изображение из буфера пропущено: не удалось определить его публичный URL. Вставь изображение по ссылке.'
+   :'Изображения из буфера пропущены: не удалось определить их публичные URL. Вставь изображения по ссылкам.';
+ }
 }
 function blobToDataUrl(blob){
  return new Promise((resolve,reject)=>{

@@ -239,8 +239,17 @@ function insertBreakAtSelection(){
  let node=selection&&selection.anchorNode;
  while(node&&node.parentNode!==editor)node=node.parentNode;
  const marker=makeBreak();
- if(node&&node.parentNode===editor)editor.insertBefore(marker,node);
- else editor.appendChild(marker);
+ if(selection&&selection.rangeCount&&node&&node.parentNode===editor){
+  const range=selection.getRangeAt(0).cloneRange();
+  try{
+   range.setEndAfter(node);
+   const remainder=range.extractContents();
+   if(remainder.textContent.trim()||remainder.querySelector('img,video')){
+    editor.insertBefore(marker,node.nextSibling);
+    editor.insertBefore(remainder,marker.nextSibling);
+   }else editor.insertBefore(marker,node.nextSibling);
+  }catch(error){editor.insertBefore(marker,node.nextSibling)}
+ }else editor.appendChild(marker);
  updateSeriesStatus();
 }
 document.getElementById('insert-break').addEventListener('click',insertBreakAtSelection);

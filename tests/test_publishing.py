@@ -215,7 +215,7 @@ def test_plain_media_payload_splits_formatting_around_media_reference() -> None:
 
 
 
-def test_plain_media_request_uses_send_message_method(monkeypatch) -> None:
+def test_plain_media_request_uses_rich_message_method_for_invisible_media_link(monkeypatch) -> None:
     import json
     from telegram_publisher import publishing
 
@@ -242,22 +242,68 @@ def test_plain_media_request_uses_send_message_method(monkeypatch) -> None:
         "test-token",
         "@test-channel",
         {
-            "html": "<strong>Текст</strong><a href=\"tg://photo?id=publication_media_1\">⁣</a>",
+            "html": "<strong>Текст</strong><a href=\\"tg://photo?id=publication_media_1\\">⁣</a>",
             "media": [{
                 "id": "publication_media_1",
                 "media": {"type": "photo", "media": "https://example.org/image.jpg"},
             }],
         },
         None,
-        method="sendMessage",
+        method="sendRichMessage",
     )
 
-    assert captured["url"] == "https://api.telegram.org/bottest-token/sendMessage"
-    assert 'name="text"' in captured["body"]
-    assert 'name="parse_mode"' in captured["body"]
-    assert 'name="media"' in captured["body"]
-    assert 'name="rich_message"' not in captured["body"]
-    assert json.dumps([{
-        "id": "publication_media_1",
-        "media": {"type": "photo", "media": "https://example.org/image.jpg"},
-    }], ensure_ascii=False) in captured["body"]
+    assert captured["url"] == "https://api.telegram.org/bottest-token/sendRichMessage"
+    assert 'name="rich_message"' in captured["body"]
+    assert 'name="text"' not in captured["body"]
+    assert 'name="media"' not in captured["body"]
+    assert json.dumps({
+        "html": "<strong>Текст</strong><a href=\\"tg://photo?id=publication_media_1\\">⁣</a>",
+        "media": [{
+            "id": "publication_media_1",
+            "media": {"type": "photo", "media": "https://example.org/image.jpg"},
+        }],
+    }, ensure_ascii=False) in captured["body"]
+
+
+def test_plain_publication_with_media_uses_invisible_link_payload(monkeypatch) -> None:
+    import asyncio
+    from telegram_publisher import publishing
+
+    calls = []
+
+    class FakeBot:
+        def __init__(self, token):
+            self.token = token
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send_message(self, **kwargs):
+            calls.append(("send_message", kwargs))
+
+    def fake_request(token, chat_id, message, image_path, *, method="sendRichMessage"):
+        calls.append((method, message, image_path))
+
+    monkeypatch.setattr(publishing, "Bot", FakeBot)
+    monkeypatch.setattr(publishing, "_multipart_request", fake_request)
+
+    count = asyncio.run(
+        publishing.send_publication(
+            "test-token",
+            "@test-channel",
+            '<p>Текст</p><img src="https://example.org/image.jpg">',
+            mode="plain",
+        )
+    )
+
+    assert count == 1
+    assert len(calls) == 1
+    method, payload, image_path = calls[0]
+    assert method == "sendRichMessage"
+    assert image_path is None
+    assert payload["media"][0]["media"]["media"] == "https://example.org/image.jpg"
+    assert '<a href="tg://photo?id=publication_media_1">⁣</a>' in payload["html"]
+    assert "<img" not in payload["html"]

@@ -212,3 +212,52 @@ def test_plain_media_payload_splits_formatting_around_media_reference() -> None:
     assert "<em> продолжение</em>" in payload["html"]
     assert "<em>курсив <a " not in payload["html"]
     assert "data-publication-media-ref" not in payload["html"]
+
+
+
+def test_plain_media_request_uses_send_message_method(monkeypatch) -> None:
+    import json
+    from telegram_publisher import publishing
+
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"ok": true}'
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["body"] = request.data.decode("utf-8")
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(publishing, "urlopen", fake_urlopen)
+    publishing._multipart_request(
+        "test-token",
+        "@test-channel",
+        {
+            "html": "<strong>Текст</strong><a href=\"tg://photo?id=publication_media_1\">⁣</a>",
+            "media": [{
+                "id": "publication_media_1",
+                "media": {"type": "photo", "media": "https://example.org/image.jpg"},
+            }],
+        },
+        None,
+        method="sendMessage",
+    )
+
+    assert captured["url"] == "https://api.telegram.org/bottest-token/sendMessage"
+    assert 'name="text"' in captured["body"]
+    assert 'name="parse_mode"' in captured["body"]
+    assert 'name="media"' in captured["body"]
+    assert 'name="rich_message"' not in captured["body"]
+    assert json.dumps([{
+        "id": "publication_media_1",
+        "media": {"type": "photo", "media": "https://example.org/image.jpg"},
+    }], ensure_ascii=False) in captured["body"]

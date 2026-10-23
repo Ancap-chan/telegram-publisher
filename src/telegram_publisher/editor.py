@@ -238,7 +238,7 @@ def main() -> None:
         height=850,
     )
     api = EditorApi(output_path, window)
-    window.expose(api.finish)
+    window.expose(api.finish, api.import_url, api.import_file)
 
     def initialize() -> None:
         window.evaluate_js(

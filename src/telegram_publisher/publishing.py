@@ -469,6 +469,36 @@ async def send_publication(
                     await bot.send_message(chat_id=chat_id, text=text)
             return 1
 
+def prepare_plain_messages(text: str, parts: list[str] | None = None) -> list[str]:
+    """Подготовить точные значения поля text для обычных сообщений sendMessage."""
+    text = text.strip()
+    is_html = bool(re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6]|img|video)\\b", text, re.IGNORECASE))
+    markup = text if is_html else html.escape(text, quote=False)
+    visible_text = _plain_text_from_html(_sanitize_plain_html(markup))
+    if parts:
+        prepared_parts = [
+            part if re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6]|img|video)\\b", part, re.IGNORECASE)
+            else html.escape(part, quote=False)
+            for part in parts
+        ]
+    elif len(visible_text) <= TEXT_LIMIT:
+        prepared_parts = [markup]
+    else:
+        prepared_parts = [html.escape(part, quote=False) for part in split_text(visible_text, TEXT_LIMIT)]
+    outgoing: list[str] = []
+    for index, part in enumerate(prepared_parts, start=1):
+        safe_part = _sanitize_plain_html(part)
+        part_length = len(_plain_text_from_html(safe_part))
+        if part_length > TEXT_LIMIT:
+            raise ValueError(f"Пост {index} превышает лимит обычного сообщения Telegram ({TEXT_LIMIT} символов).")
+        media_nodes = BeautifulSoup(part, "html.parser").find_all(["img", "video"])
+        if len(media_nodes) > 1:
+            raise ValueError(f"Пост {index}: в обычном сообщении допускается только одно изображение или видео.")
+        payload = _plain_media_payload(part)
+        outgoing.append(payload["html"] if payload else safe_part)
+    return outgoing
+
+
     if mode == "plain":
         is_html = bool(re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6]|img|video)\b", text, re.IGNORECASE))
         markup = text if is_html else html.escape(text, quote=False)
@@ -505,6 +535,39 @@ async def send_publication(
                     parse_mode="HTML",
                 )
         return len(prepared_parts)
+
+    if mode == "plain":
+        visible_text = _plain_text_from_html(_sanitize_plain_html(
+            text if re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6]|img|video)\\b", text, re.IGNORECASE)
+            else html.escape(text, quote=False)
+        ))
+        if len(visible_text) > TEXT_LIMIT and not series and not parts:
+            raise ValueError("Обычное сообщение ограничено 4096 символами. Включи серию публикаций.")
+        prepared_messages = prepare_plain_messages(text, parts or None)
+        async with Bot(token=token) as bot:
+            for message_html in prepared_messages:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=message_html,
+                    parse_mode="HTML",
+                )
+        return len(prepared_messages)
+
+    if mode == "plain_prepared":
+        prepared_messages = [part for part in (parts or [text]) if part.strip()]
+        if not prepared_messages:
+            raise ValueError("Добавь текст перед отправкой.")
+        for index, message_html in enumerate(prepared_messages, start=1):
+            if len(_plain_text_from_html(message_html)) > TEXT_LIMIT:
+                raise ValueError(f"Сообщение {index} превышает лимит обычного сообщения Telegram ({TEXT_LIMIT} символов).")
+        async with Bot(token=token) as bot:
+            for message_html in prepared_messages:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=message_html,
+                    parse_mode="HTML",
+                )
+        return len(prepared_messages)
 
     if mode == "media_text":
         if not image_path:

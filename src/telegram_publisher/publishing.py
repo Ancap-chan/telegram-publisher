@@ -110,10 +110,10 @@ def _multipart_request(
     add_field("chat_id", chat_id)
     upload_files = message.pop("_upload_files", [])
     if method == "sendMessage":
+        if message.get("media"):
+            raise ValueError("Метод sendMessage не поддерживает поле media. Для обычного сообщения используй невидимую ссылку на публичный URL.")
         add_field("text", str(message.get("html", "")))
         add_field("parse_mode", "HTML")
-        if message.get("media"):
-            add_field("media", json.dumps(message["media"], ensure_ascii=False))
     else:
         add_field("rich_message", json.dumps(message, ensure_ascii=False))
 
@@ -302,7 +302,7 @@ def _rich_payload(
 
 
 def _plain_media_payload(content: str, image_path: str | None = None) -> dict | None:
-    """Подготовить обычное сообщение с одним медиа, не вкладывая его ссылку в форматирование."""
+    """Подготовить обычное сообщение с одной невидимой ссылкой на публичное медиа."""
     soup = BeautifulSoup(content, "html.parser")
     media_nodes = list(soup.find_all(["img", "video"]))
     if len(media_nodes) > 1:
@@ -311,20 +311,19 @@ def _plain_media_payload(content: str, image_path: str | None = None) -> dict | 
         raise ValueError("В одном обычном сообщении допускается только одно медиа. Удали встроенное изображение или отдельный файл.")
     if not media_nodes and not image_path:
         return None
+    if image_path and not media_nodes:
+        raise ValueError(
+            "Для обычного сообщения изображение или видео должно иметь публичный URL. "
+            "Локальный файл можно отправить в режиме «Подпись к изображению» или «Рич-текст»."
+        )
 
-    if not media_nodes:
-        safe_html = _sanitize_plain_html(soup.decode_contents())
-        payload = _rich_payload(safe_html, image_path, rich_formatting=True, invisible_media_link=True)
-        if not payload.get("media"):
-            raise ValueError("Не удалось подготовить изображение или видео для публикации.")
-        return payload
-
-    source = str(media_nodes[0].get("src", "")).strip()
-    if not source.lower().startswith((
-        "https://", "http://", "data:image/png;base64,", "data:image/jpeg;base64,",
-        "data:image/jpg;base64,", "data:image/gif;base64,", "data:image/webp;base64,",
-    )):
-        raise ValueError("Для медиа в обычном сообщении укажи публичный URL или вставь изображение из буфера обмена.")
+    media_node = media_nodes[0]
+    source = str(media_node.get("src", "")).strip()
+    if not source.lower().startswith(("https://", "http://")):
+        raise ValueError(
+            "Для обычного сообщения ссылка на медиа должна вести на публичный URL. "
+            "Изображение из буфера обмена без публичного URL нельзя встроить этим способом."
+        )
 
     safe_html = _sanitize_plain_html(soup.decode_contents(), preserve_media=True)
     soup = BeautifulSoup(safe_html, "html.parser")
@@ -332,40 +331,7 @@ def _plain_media_payload(content: str, image_path: str | None = None) -> dict | 
     if media_node is None:
         raise ValueError("Не удалось подготовить изображение или видео для публикации.")
     source = str(media_node.get("src", "")).strip()
-    media_type = "video" if media_node.name == "video" else "photo"
-    media_id = "publication_media_1"
-    media: list[dict] = []
-    upload_files: list[dict] = []
-
-    if source.lower().startswith(("https://", "http://")):
-        media.append({"id": media_id, "media": {"type": media_type, "media": source}})
-    elif media_type == "photo" and re.match(r"^data:image/(png|jpeg|jpg|gif|webp);base64,", source, re.I):
-        header, encoded = source.split(",", 1)
-        try:
-            image_bytes = base64.b64decode(encoded, validate=True)
-        except (ValueError, base64.binascii.Error) as error:
-            raise ValueError("Не удалось прочитать изображение из буфера обмена.") from error
-        subtype_match = re.match(r"^data:image/([^;]+)", header, re.I)
-        if not subtype_match:
-            raise ValueError("Не удалось определить формат изображения из буфера обмена.")
-        subtype = subtype_match.group(1).lower()
-        mime_type = "image/jpeg" if subtype in {"jpg", "jpeg"} else f"image/{subtype}"
-        extension = "jpg" if subtype in {"jpg", "jpeg"} else subtype
-        field = "inline_media_1"
-        upload_files.append({
-            "field": field,
-            "filename": f"{field}.{extension}",
-            "mime_type": mime_type,
-            "data": image_bytes,
-        })
-        media.append({"id": media_id, "media": {"type": "photo", "media": f"attach://{field}"}})
-    else:
-        raise ValueError("Этот тип медиа нельзя вставить в обычное сообщение.")
-
-    media_anchor = soup.new_tag(
-        "a",
-        href=f"tg://{media_type if media_type == 'video' else 'photo'}?id={media_id}",
-    )
+    media_anchor = soup.new_tag("a", href=source)
     media_anchor["data-publication-media-ref"] = "1"
     media_anchor.string = "\u2063"
     inline_tags = {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "a", "code"}
@@ -420,10 +386,8 @@ def _plain_media_payload(content: str, image_path: str | None = None) -> dict | 
     for node in output:
         remove_internal_marker(node)
 
-    payload: dict = {"html": "".join(str(node) for node in output), "media": media}
-    if upload_files:
-        payload["_upload_files"] = upload_files
-    return payload
+    return {"html": "".join(str(node) for node in output)}
+
 
 async def _send_rich(
     token: str,
@@ -534,17 +498,12 @@ async def send_publication(
         async with Bot(token=token) as bot:
             for index, part in enumerate(prepared_parts):
                 payload = _plain_media_payload(part, image_path if index == 0 else None)
-                if payload:
-                    await asyncio.to_thread(
-                        _multipart_request,
-                        token,
-                        chat_id,
-                        payload,
-                        image_path if index == 0 else None,
-                        method="sendMessage",
-                    )
-                else:
-                    await bot.send_message(chat_id=chat_id, text=_sanitize_plain_html(part), parse_mode="HTML")
+                message_html = payload["html"] if payload else _sanitize_plain_html(part)
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=message_html,
+                    parse_mode="HTML",
+                )
         return len(prepared_parts)
 
     if mode == "media_text":

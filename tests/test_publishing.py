@@ -113,19 +113,16 @@ def test_rich_payload_ignores_non_public_media_urls() -> None:
     assert payload["html"] == ""
 
 
-def test_plain_media_payload_uses_one_invisible_link() -> None:
+def test_plain_media_payload_uses_invisible_link_to_public_image_url() -> None:
     from telegram_publisher.publishing import _plain_media_payload
 
     payload = _plain_media_payload(
         '<p><strong>Текст</strong></p><img src="https://example.org/image.jpg">'
     )
     assert payload is not None
-    assert payload["media"] == [{
-        "id": "publication_media_1",
-        "media": {"type": "photo", "media": "https://example.org/image.jpg"},
-    }]
+    assert "media" not in payload
     assert '<strong>Текст</strong>' in payload["html"]
-    assert '<a href="tg://photo?id=publication_media_1">\u2063</a>' in payload["html"]
+    assert '<a href="https://example.org/image.jpg">\u2063</a>' in payload["html"]
     assert "<img" not in payload["html"]
 
 
@@ -138,14 +135,20 @@ def test_plain_media_payload_rejects_multiple_media() -> None:
         )
 
 
-def test_plain_media_payload_supports_video() -> None:
+def test_plain_media_payload_supports_video_url() -> None:
     from telegram_publisher.publishing import _plain_media_payload
 
     payload = _plain_media_payload('<p>Текст</p><video controls src="https://example.org/movie.mp4"></video>')
     assert payload is not None
-    assert payload["media"][0]["media"]["type"] == "video"
-    assert '<a href="tg://video?id=publication_media_1">\u2063</a>' in payload["html"]
+    assert "media" not in payload
+    assert '<a href="https://example.org/movie.mp4">\u2063</a>' in payload["html"]
 
+
+def test_plain_media_payload_rejects_data_uri_without_public_url() -> None:
+    from telegram_publisher.publishing import _plain_media_payload
+
+    with pytest.raises(ValueError, match="публичный URL"):
+        _plain_media_payload('<img src="data:image/png;base64,aGVsbG8=">')
 
 
 def test_plain_html_removes_html_comments() -> None:
@@ -170,7 +173,6 @@ def test_rich_payload_uploads_pasted_data_uri_image() -> None:
     assert 'tg://photo?id=publication_media_1' in payload['html']
 
 
-
 def test_plain_media_payload_keeps_image_outside_inline_formatting() -> None:
     from telegram_publisher.publishing import _plain_media_payload
 
@@ -178,25 +180,10 @@ def test_plain_media_payload_keeps_image_outside_inline_formatting() -> None:
         '<p><strong>До <img src="https://example.org/image.jpg"> после</strong></p>'
     )
     assert payload is not None
-    assert payload["media"][0]["media"]["media"] == "https://example.org/image.jpg"
     assert "<strong>До </strong>" in payload["html"]
-    assert '<a href="tg://photo?id=publication_media_1">\u2063</a>' in payload["html"]
+    assert '<a href="https://example.org/image.jpg">\u2063</a>' in payload["html"]
     assert "<strong> после</strong>" in payload["html"]
     assert "<strong>До <a " not in payload["html"]
-
-
-def test_plain_media_payload_keeps_formatted_text_with_data_uri_image() -> None:
-    from telegram_publisher.publishing import _plain_media_payload
-
-    payload = _plain_media_payload(
-        '<p><em>До <img src="data:image/png;base64,aGVsbG8="> после</em></p>'
-    )
-    assert payload is not None
-    assert payload["media"][0]["media"]["media"] == "attach://inline_media_1"
-    assert payload["_upload_files"][0]["data"] == b"hello"
-    assert "<em>До </em>" in payload["html"]
-    assert " после</em>" in payload["html"]
-    assert "<em>До <a " not in payload["html"]
 
 
 def test_plain_media_payload_splits_formatting_around_media_reference() -> None:
@@ -208,56 +195,45 @@ def test_plain_media_payload_splits_formatting_around_media_reference() -> None:
     assert payload is not None
     assert "<strong>Жирный</strong>" in payload["html"]
     assert "<em>курсив </em>" in payload["html"]
-    assert '<a href="tg://photo?id=publication_media_1">\u2063</a>' in payload["html"]
+    assert '<a href="https://example.org/image.jpg">\u2063</a>' in payload["html"]
     assert "<em> продолжение</em>" in payload["html"]
     assert "<em>курсив <a " not in payload["html"]
     assert "data-publication-media-ref" not in payload["html"]
 
 
-
-def test_plain_media_request_uses_send_message_method(monkeypatch) -> None:
-    import json
+def test_plain_publication_sends_media_via_send_message(monkeypatch) -> None:
+    import asyncio
     from telegram_publisher import publishing
 
-    captured = {}
+    sent_messages = []
 
-    class FakeResponse:
-        def __enter__(self):
+    class FakeBot:
+        def __init__(self, token):
+            self.token = token
+
+        async def __aenter__(self):
             return self
 
-        def __exit__(self, *_args):
+        async def __aexit__(self, *_args):
             return False
 
-        def read(self):
-            return b'{"ok": true}'
+        async def send_message(self, **kwargs):
+            sent_messages.append(kwargs)
 
-    def fake_urlopen(request, timeout):
-        captured["url"] = request.full_url
-        captured["body"] = request.data.decode("utf-8")
-        captured["timeout"] = timeout
-        return FakeResponse()
+    monkeypatch.setattr(publishing, "Bot", FakeBot)
 
-    monkeypatch.setattr(publishing, "urlopen", fake_urlopen)
-    publishing._multipart_request(
-        "test-token",
-        "@test-channel",
-        {
-            "html": "<strong>Текст</strong><a href=\"tg://photo?id=publication_media_1\">⁣</a>",
-            "media": [{
-                "id": "publication_media_1",
-                "media": {"type": "photo", "media": "https://example.org/image.jpg"},
-            }],
-        },
-        None,
-        method="sendMessage",
+    sent = asyncio.run(
+        publishing.send_publication(
+            "test-token",
+            "@test-channel",
+            '<p><strong>Текст</strong></p><img src="https://example.org/image.jpg">',
+            mode="plain",
+        )
     )
 
-    assert captured["url"] == "https://api.telegram.org/bottest-token/sendMessage"
-    assert 'name="text"' in captured["body"]
-    assert 'name="parse_mode"' in captured["body"]
-    assert 'name="media"' in captured["body"]
-    assert 'name="rich_message"' not in captured["body"]
-    assert json.dumps([{
-        "id": "publication_media_1",
-        "media": {"type": "photo", "media": "https://example.org/image.jpg"},
-    }], ensure_ascii=False) in captured["body"]
+    assert sent == 1
+    assert len(sent_messages) == 1
+    assert sent_messages[0]["parse_mode"] == "HTML"
+    assert '<strong>Текст</strong>' in sent_messages[0]["text"]
+    assert '<a href="https://example.org/image.jpg">\u2063</a>' in sent_messages[0]["text"]
+    assert "tg://photo" not in sent_messages[0]["text"]

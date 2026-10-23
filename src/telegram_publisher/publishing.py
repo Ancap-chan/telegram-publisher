@@ -541,7 +541,8 @@ async def send_publication(
                         chat_id,
                         payload,
                         image_path if index == 0 else None,
-                        method="sendMessage",
+                        # Невидимая ссылка связывает текст с медиа через формат рич-сообщения.
+                        method="sendRichMessage",
                     )
                 else:
                     await bot.send_message(chat_id=chat_id, text=_sanitize_plain_html(part), parse_mode="HTML")

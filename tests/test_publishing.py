@@ -85,6 +85,25 @@ def test_rich_payload_converts_public_media_urls() -> None:
     assert payload["html"].count("</video>") == 1
 
 
+def test_plain_html_preserves_telegram_supported_formatting_and_removes_media() -> None:
+    from telegram_publisher.publishing import _sanitize_plain_html
+
+    result = _sanitize_plain_html(
+        '<p><strong>жирный</strong> и <a href="https://example.org">ссылка</a></p>'
+        '<img src="https://example.org/image.jpg"><blockquote>цитата</blockquote>'
+    )
+    assert "<strong>жирный</strong>" in result
+    assert '<a href="https://example.org">ссылка</a>' in result
+    assert "<blockquote>цитата</blockquote>" in result
+    assert "<img" not in result
+
+
+def test_plain_text_length_ignores_markup() -> None:
+    from telegram_publisher.publishing import _plain_text_from_html
+
+    assert len(_plain_text_from_html("<p><strong>текст</strong></p>")) == 5
+
+
 def test_rich_payload_ignores_non_public_media_urls() -> None:
     from telegram_publisher.publishing import _rich_payload
 

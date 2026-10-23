@@ -166,6 +166,19 @@ def _wordpress_content(url: str) -> str | None:
             if content:
                 title_markup = item.get("title", {}).get("rendered", "")
                 title = BeautifulSoup(title_markup, "html.parser").get_text(" ", strip=True)
+                if not title:
+                    try:
+                        page_html, _ = _download(url)
+                        page = BeautifulSoup(page_html, "html.parser")
+                        title_node = page.find("h1") or page.find("meta", property="og:title") or page.find("title")
+                        if title_node:
+                            title = (
+                                str(title_node.get("content", "")).strip()
+                                if isinstance(title_node, Tag) and title_node.name == "meta"
+                                else title_node.get_text(" ", strip=True)
+                            )
+                    except ValueError:
+                        pass
                 title_html = f"<h1>{html.escape(title)}</h1>" if title else ""
                 return title_html + _sanitize_html(content, url)
     return None

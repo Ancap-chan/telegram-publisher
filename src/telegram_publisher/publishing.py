@@ -9,6 +9,8 @@ import mimetypes
 import re
 import uuid
 from pathlib import Path
+
+from bs4 import BeautifulSoup, Tag
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -126,6 +128,52 @@ def _multipart_request(token: str, chat_id: str, rich_message: dict, image_path:
         )
 
 
+def _plain_text_from_html(content: str) -> str:
+    """Извлечь текст для проверки лимитов, не считая HTML-разметку."""
+    soup = BeautifulSoup(content, "html.parser")
+    for node in soup.find_all(["img", "video", "table", "script", "style"]):
+        node.decompose()
+    for node in soup.find_all("br"):
+        node.replace_with("\n")
+    for node in soup.find_all(["p", "div", "li", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6"]):
+        node.insert_after("\n")
+    return soup.get_text().strip()
+
+
+def _sanitize_plain_html(content: str) -> str:
+    """Оставить только форматирование, поддерживаемое обычными сообщениями Telegram."""
+    soup = BeautifulSoup(content, "html.parser")
+    for node in soup.find_all(["script", "style", "img", "video", "table", "iframe"]):
+        node.decompose()
+    for node in list(soup.find_all(["ul", "ol"])):
+        node.unwrap()
+    for node in list(soup.find_all("li")):
+        node.insert_before("• ")
+        node.insert_after(soup.new_tag("br"))
+        node.unwrap()
+    for node in list(soup.find_all(["p", "div"])):
+        node.insert_before(soup.new_tag("br"))
+        node.insert_after(soup.new_tag("br"))
+        node.unwrap()
+    for node in list(soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])):
+        node.name = "b"
+        node.insert_after(soup.new_tag("br"))
+    allowed = {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "a", "code", "pre", "blockquote", "br"}
+    for node in list(soup.find_all(True)):
+        if node.name not in allowed:
+            node.unwrap()
+            continue
+        if node.name == "a":
+            href = str(node.get("href", "")).strip()
+            if not href.lower().startswith(("https://", "http://", "tg://", "mailto:")):
+                node.unwrap()
+            else:
+                node.attrs = {"href": href}
+        else:
+            node.attrs = {}
+    return soup.decode_contents().strip()
+
+
 def _rich_payload(text: str, image_path: str | None, *, rich_formatting: bool) -> dict:
     """Сформировать HTML и список медиа для рич-сообщения."""
     body = text if rich_formatting else html.escape(text, quote=False)
@@ -172,7 +220,7 @@ async def _send_rich(
     rich_formatting: bool = True,
 ) -> None:
     """Отправить одно рич-сообщение; сетевой запрос выполняется вне цикла asyncio."""
-    if len(text) > RICH_TEXT_LIMIT:
+    if len(_plain_text_from_html(text)) > RICH_TEXT_LIMIT:
         raise ValueError(
             f"Рич-текст не может превышать {RICH_TEXT_LIMIT} символов за одно сообщение."
         )
@@ -189,9 +237,12 @@ async def send_publication(
     image_path: str | None = None,
     mode: str = "auto",
     series: bool = False,
+    parts: list[str] | None = None,
 ) -> int:
     """Отправить публикацию выбранным способом и вернуть число сообщений."""
     text = text.strip()
+    requested_mode = mode
+    parts = [part.strip() for part in parts or [] if part.strip()]
     if not text and not image_path:
         raise ValueError("Добавь текст или выбери изображение для публикации.")
 
@@ -241,17 +292,28 @@ async def send_publication(
             return 1
 
     if mode == "plain":
-        if len(text) <= TEXT_LIMIT:
-            async with Bot(token=token) as bot:
-                await bot.send_message(chat_id=chat_id, text=text)
-            return 1
-        if not series:
-            raise ValueError("Обычное сообщение ограничено 4096 символами. Включи серию или выбери рич-текст.")
+        is_html = bool(re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6])\\b", text, re.IGNORECASE))
+        markup = _sanitize_plain_html(text) if is_html else html.escape(text, quote=False)
+        visible_text = _plain_text_from_html(markup)
+        if len(visible_text) > TEXT_LIMIT and not series:
+            raise ValueError("Обычное сообщение ограничено 4096 символами. Включи серию публикаций.")
+        if parts:
+            prepared_parts = [_sanitize_plain_html(part) for part in parts]
+        elif len(visible_text) <= TEXT_LIMIT:
+            prepared_parts = [markup]
+        elif series:
+            # Для старого интерфейса без разрывов сохраняется разбиение обычного текста.
+            prepared_parts = [html.escape(part, quote=False) for part in split_text(visible_text, TEXT_LIMIT)]
+        else:
+            prepared_parts = [markup]
+        for index, part in enumerate(prepared_parts, start=1):
+            part_length = len(_plain_text_from_html(part))
+            if part_length > TEXT_LIMIT:
+                raise ValueError(f"Пост {index} превышает лимит обычного сообщения Telegram ({TEXT_LIMIT} символов).")
         async with Bot(token=token) as bot:
-            parts = split_text(text, TEXT_LIMIT)
-            for part in parts:
-                await bot.send_message(chat_id=chat_id, text=part)
-        return len(parts)
+            for part in prepared_parts:
+                await bot.send_message(chat_id=chat_id, text=part, parse_mode="HTML")
+        return len(prepared_parts)
 
     if mode == "media_text":
         if not image_path:
@@ -269,17 +331,26 @@ async def send_publication(
             return len(parts)
 
     if mode == "rich":
-        if len(text) <= RICH_TEXT_LIMIT:
+        visible_length = len(_plain_text_from_html(text))
+        if requested_mode == "rich_series" and parts:
+            for index, part in enumerate(parts):
+                part_length = len(_plain_text_from_html(part))
+                if part_length > RICH_TEXT_LIMIT:
+                    raise ValueError(f"Пост {index + 1} превышает лимит рич-текста Telegram ({RICH_TEXT_LIMIT} символов).")
+            for index, part in enumerate(parts):
+                await _send_rich(token, chat_id, part, image_path if index == 0 else None, rich_formatting=True)
+            return len(parts)
+        if visible_length <= RICH_TEXT_LIMIT and not (series and parts):
             await _send_rich(token, chat_id, text, image_path, rich_formatting=True)
             return 1
         if not series:
             raise ValueError("Рич-сообщение ограничено 32768 символами. Включи серию публикаций.")
-        parts = split_text(text, RICH_TEXT_LIMIT)
-        for index, part in enumerate(parts):
+        prepared_parts = parts or split_text(text, RICH_TEXT_LIMIT)
+        for index, part in enumerate(prepared_parts):
             await _send_rich(
                 token, chat_id, part, image_path if index == 0 else None, rich_formatting=True
             )
-        return len(parts)
+        return len(prepared_parts)
 
     raise ValueError(f"Неизвестный режим публикации: {mode}")
 
@@ -291,6 +362,7 @@ def publish_sync(
     image_path: str | None = None,
     mode: str = "auto",
     series: bool = False,
+    parts: list[str] | None = None,
 ) -> int:
     """Синхронная точка вызова для графического интерфейса."""
-    return asyncio.run(send_publication(token, chat_id, text, image_path, mode, series))
+    return asyncio.run(send_publication(token, chat_id, text, image_path, mode, series, parts))

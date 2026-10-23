@@ -180,9 +180,11 @@ def test_plain_media_payload_keeps_image_outside_inline_formatting() -> None:
     assert payload is not None
     assert payload["media"][0]["media"]["media"] == "https://example.org/image.jpg"
     assert "<strong>До </strong>" in payload["html"]
-    assert '<a href="tg://photo?id=publication_media_1">\\u2063</a>' in payload["html"]
+    assert '<a href="tg://photo?id=publication_media_1">\u2063</a>' in payload["html"]
     assert "<strong> после</strong>" in payload["html"]
     assert "<strong>До <a " not in payload["html"]
+
+
 def test_plain_media_payload_keeps_formatted_text_with_data_uri_image() -> None:
     from telegram_publisher.publishing import _plain_media_payload
 
@@ -206,7 +208,7 @@ def test_plain_media_payload_splits_formatting_around_media_reference() -> None:
     assert payload is not None
     assert "<strong>Жирный</strong>" in payload["html"]
     assert "<em>курсив </em>" in payload["html"]
-    assert '<a href="tg://photo?id=publication_media_1">\\u2063</a>' in payload["html"]
+    assert '<a href="tg://photo?id=publication_media_1">\u2063</a>' in payload["html"]
     assert "<em> продолжение</em>" in payload["html"]
     assert "<em>курсив <a " not in payload["html"]
     assert "data-publication-media-ref" not in payload["html"]

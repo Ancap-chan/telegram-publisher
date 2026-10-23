@@ -28,6 +28,7 @@ from telegram_publisher.publishing import (
     TEXT_LIMIT,
     estimate_message_count,
     publish_sync,
+    prepare_plain_messages,
 )
 
 
@@ -87,6 +88,7 @@ class PublisherWindow:
         self.editor_tempdir: tempfile.TemporaryDirectory | None = None
         self.editor_status_path: Path | None = None
         self.send_in_progress = False
+        self.finalized_plain_parts: list[str] | None = None
 
         _load_environment()
         self.profiles = self._load_profiles_with_environment()
@@ -421,7 +423,10 @@ class PublisherWindow:
                 self._write_editor_status(f"Не удалось прочитать результат редактора: {error}")
             action = result.get("action")
 
-            if running and action == "publish":
+            if running and action == "review_publish":
+                result_path.unlink(missing_ok=True)
+                self._review_plain_messages(result)
+            elif running and action == "publish":
                 result_path.unlink(missing_ok=True)
                 self._apply_editor_result(result)
                 self.publishing_from_editor = True
@@ -453,6 +458,99 @@ class PublisherWindow:
 
         # Закрытие окна редактора, включая кнопку «Отмена», завершает приложение.
         self.root.destroy()
+
+    def _review_plain_messages(self, result: dict) -> None:
+        """Показать точные строки sendMessage перед отправкой обычной публикации."""
+        mode = str(result.get("mode", "plain"))
+        raw_parts = result.get("parts")
+        editor_parts = [str(part) for part in raw_parts] if isinstance(raw_parts, list) and raw_parts else None
+        try:
+            messages = prepare_plain_messages(
+                str(result.get("html", "")),
+                editor_parts if mode == "plain_series" else None,
+            )
+        except Exception as error:
+            self._write_editor_status(f"Не удалось подготовить текст sendMessage: {error}")
+            return
+        if not messages:
+            self._write_editor_status("После подготовки не осталось сообщений для отправки.")
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Финальная правка текста sendMessage")
+        dialog.geometry("900x620")
+        dialog.minsize(620, 420)
+        dialog.transient(self.root)
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+
+        frame = ttk.Frame(dialog, padding=12)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(
+            frame,
+            text=(
+                "Ниже показано точное содержимое поля text, которое будет передано Telegram Bot API. "
+                "HTML-разметка и невидимые символы показаны как есть."
+            ),
+            wraplength=850,
+        ).pack(anchor=tk.W, pady=(0, 8))
+
+        editors: list[tk.Text] = []
+        if len(messages) > 1:
+            notebook = ttk.Notebook(frame)
+            notebook.pack(fill=tk.BOTH, expand=True)
+            for index, message in enumerate(messages, start=1):
+                tab = ttk.Frame(notebook, padding=6)
+                tab.pack(fill=tk.BOTH, expand=True)
+                text_box = tk.Text(tab, wrap=tk.WORD, undo=True, font=("Consolas", 10))
+                scrollbar = ttk.Scrollbar(tab, orient=tk.VERTICAL, command=text_box.yview)
+                text_box.configure(yscrollcommand=scrollbar.set)
+                scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+                text_box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                text_box.insert("1.0", message)
+                editors.append(text_box)
+                notebook.add(tab, text=f"Сообщение {index}")
+        else:
+            text_box = tk.Text(frame, wrap=tk.WORD, undo=True, font=("Consolas", 10))
+            scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text_box.yview)
+            text_box.configure(yscrollcommand=scrollbar.set)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            text_box.pack(fill=tk.BOTH, expand=True)
+            text_box.insert("1.0", messages[0])
+            editors.append(text_box)
+
+        outcome: dict[str, object] = {"send": False}
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill=tk.X, pady=(10, 0))
+
+        def cancel() -> None:
+            dialog.destroy()
+
+        def send() -> None:
+            edited = [box.get("1.0", "end-1c") for box in editors]
+            if not any(part.strip() for part in edited):
+                messagebox.showwarning("Пустая публикация", "Добавь текст перед отправкой.", parent=dialog)
+                return
+            outcome["send"] = True
+            outcome["messages"] = edited
+            dialog.destroy()
+
+        ttk.Button(buttons, text="Отмена", command=cancel).pack(side=tk.RIGHT)
+        ttk.Button(buttons, text="Отправить", command=send).pack(side=tk.RIGHT, padx=(0, 8))
+        if editors:
+            editors[0].focus_set()
+        dialog.grab_set()
+        self._write_editor_status("Отправка: ожидается финальная правка текста…")
+        self.root.wait_window(dialog)
+
+        if not outcome["send"]:
+            self._write_editor_status("Публикация отменена. Текст остался в визуальном редакторе.")
+            return
+
+        self._apply_editor_result(result)
+        self.finalized_plain_parts = [str(part) for part in outcome["messages"]]
+        self.publishing_from_editor = True
+        self.status.configure(text="Подготовка публикации после финальной правки")
+        self._send()
 
     def _apply_editor_result(self, result: dict) -> None:
         if "html" not in result:
@@ -607,11 +705,13 @@ class PublisherWindow:
 
         plain_content = self.text.get("1.0", "end-1c").strip()
         mode = (
-            self.editor_mode
+            "plain_prepared"
+            if from_editor and self.finalized_plain_parts is not None
+            else self.editor_mode
             if from_editor
             else self.mode_values.get(self.mode_combo.get(), "auto")
         )
-        content = self.html_content if from_editor or mode in {"rich", "rich_series", "media_text"} else plain_content
+        content = self.html_content if from_editor or mode in {"rich", "rich_series", "media_text", "plain_prepared"} else plain_content
         if not plain_content and not self.image_path and not content.strip():
             if from_editor:
                 self._write_editor_status("Добавь текст, изображение или видео перед публикацией.")
@@ -654,7 +754,16 @@ class PublisherWindow:
         self._write_editor_status("Отправка публикации…")
         thread = threading.Thread(
             target=self._send_in_background,
-            args=(profile, content, self.image_path, mode, series, self.editor_parts if from_editor and series else None),
+            args=(
+                profile,
+                content,
+                self.image_path,
+                mode,
+                series,
+                self.finalized_plain_parts
+                if from_editor and self.finalized_plain_parts is not None
+                else self.editor_parts if from_editor and series else None,
+            ),
             daemon=True,
         )
         thread.start()
@@ -684,6 +793,7 @@ class PublisherWindow:
         if self.publishing_from_editor:
             self._write_editor_status(f"Ошибка публикации: {error}")
             self.publishing_from_editor = False
+            self.finalized_plain_parts = None
             return
         messagebox.showerror("Ошибка публикации", error, parent=self.root)
 
@@ -694,12 +804,9 @@ class PublisherWindow:
         if self.publishing_from_editor:
             self._write_editor_status(
                 f"Опубликовано. Отправлено сообщений: {count}",
-                clear=True,
             )
             self.publishing_from_editor = False
-            self.html_content = ""
-            self.text.delete("1.0", tk.END)
-            self._update_counter()
+            self.finalized_plain_parts = None
             return
         messagebox.showinfo("Публикация завершена", f"Отправлено сообщений: {count}", parent=self.root)
 

@@ -411,12 +411,12 @@ async def _send_rich(
 def prepare_plain_messages(text: str, parts: list[str] | None = None) -> list[str]:
     """Подготовить точные значения поля text для обычных сообщений sendMessage."""
     text = text.strip()
-    is_html = bool(re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6]|img|video)\\b", text, re.IGNORECASE))
+    is_html = bool(re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6]|img|video)\b", text, re.IGNORECASE))
     markup = text if is_html else html.escape(text, quote=False)
     visible_text = _plain_text_from_html(_sanitize_plain_html(markup))
     if parts:
         prepared_parts = [
-            part if re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6]|img|video)\\b", part, re.IGNORECASE)
+            part if re.search(r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6]|img|video)\b", part, re.IGNORECASE)
             else html.escape(part, quote=False)
             for part in parts
         ]
@@ -501,7 +501,7 @@ async def send_publication(
 
     if mode == "plain":
         markup = text if re.search(
-            r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6]|img|video)\\b",
+            r"</?(?:p|div|b|strong|i|em|u|s|strike|del|a|code|pre|blockquote|ul|ol|li|h[1-6]|img|video)\b",
             text,
             re.IGNORECASE,
         ) else html.escape(text, quote=False)

@@ -215,7 +215,7 @@ def test_plain_media_payload_splits_formatting_around_media_reference() -> None:
 
 
 
-def test_plain_media_request_uses_send_message_method(monkeypatch) -> None:
+def test_plain_media_request_uses_rich_message_transport(monkeypatch) -> None:
     import json
     from telegram_publisher import publishing
 
@@ -249,15 +249,18 @@ def test_plain_media_request_uses_send_message_method(monkeypatch) -> None:
             }],
         },
         None,
-        method="sendMessage",
+        method="sendRichMessage",
     )
 
-    assert captured["url"] == "https://api.telegram.org/bottest-token/sendMessage"
-    assert 'name="text"' in captured["body"]
-    assert 'name="parse_mode"' in captured["body"]
-    assert 'name="media"' in captured["body"]
-    assert 'name="rich_message"' not in captured["body"]
-    assert json.dumps([{
-        "id": "publication_media_1",
-        "media": {"type": "photo", "media": "https://example.org/image.jpg"},
-    }], ensure_ascii=False) in captured["body"]
+    assert captured["url"] == "https://api.telegram.org/bottest-token/sendRichMessage"
+    assert 'name="rich_message"' in captured["body"]
+    assert 'name="text"' not in captured["body"]
+    assert 'name="parse_mode"' not in captured["body"]
+    assert 'name="media"' not in captured["body"]
+    assert json.dumps({
+        "html": "<strong>Текст</strong><a href=\"tg://photo?id=publication_media_1\">⁣</a>",
+        "media": [{
+            "id": "publication_media_1",
+            "media": {"type": "photo", "media": "https://example.org/image.jpg"},
+        }],
+    }, ensure_ascii=False) in captured["body"]

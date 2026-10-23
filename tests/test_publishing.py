@@ -115,16 +115,12 @@ def test_rich_payload_ignores_non_public_media_urls() -> None:
 
 def test_plain_media_payload_uses_invisible_link_to_public_image_url() -> None:
     from telegram_publisher.publishing import _plain_media_payload
-
-    payload = _plain_media_payload(
-        '<p><strong>Текст</strong></p><img src="https://example.org/image.jpg">'
-    )
+    payload = _plain_media_payload('<p><strong>Текст</strong></p><img src="https://example.org/image.jpg">')
     assert payload is not None
     assert "media" not in payload
     assert '<strong>Текст</strong>' in payload["html"]
-    assert '<a href="https://example.org/image.jpg">\u2063</a>' in payload["html"]
+    assert payload["html"].endswith('<a href="https://example.org/image.jpg">ㅤ</a>')
     assert "<img" not in payload["html"]
-
 
 def test_plain_media_payload_rejects_multiple_media() -> None:
     from telegram_publisher.publishing import _plain_media_payload
@@ -137,12 +133,10 @@ def test_plain_media_payload_rejects_multiple_media() -> None:
 
 def test_plain_media_payload_supports_video_url() -> None:
     from telegram_publisher.publishing import _plain_media_payload
-
     payload = _plain_media_payload('<p>Текст</p><video controls src="https://example.org/movie.mp4"></video>')
     assert payload is not None
     assert "media" not in payload
-    assert '<a href="https://example.org/movie.mp4">\u2063</a>' in payload["html"]
-
+    assert payload["html"].endswith('<a href="https://example.org/movie.mp4">ㅤ</a>')
 
 def test_plain_media_payload_rejects_data_uri_without_public_url() -> None:
     from telegram_publisher.publishing import _plain_media_payload
@@ -175,31 +169,20 @@ def test_rich_payload_uploads_pasted_data_uri_image() -> None:
 
 def test_plain_media_payload_keeps_image_outside_inline_formatting() -> None:
     from telegram_publisher.publishing import _plain_media_payload
-
-    payload = _plain_media_payload(
-        '<p><strong>До <img src="https://example.org/image.jpg"> после</strong></p>'
-    )
+    payload = _plain_media_payload('<p><strong>До <img src="https://example.org/image.jpg"> после</strong></p>')
     assert payload is not None
-    assert "<strong>До </strong>" in payload["html"]
-    assert '<a href="https://example.org/image.jpg">\u2063</a>' in payload["html"]
-    assert "<strong> после</strong>" in payload["html"]
-    assert "<strong>До <a " not in payload["html"]
+    assert "<strong>До  после</strong>" in payload["html"]
+    assert payload["html"].endswith('<a href="https://example.org/image.jpg">ㅤ</a>')
+    assert "<img" not in payload["html"]
 
-
-def test_plain_media_payload_splits_formatting_around_media_reference() -> None:
+def test_plain_media_payload_moves_media_reference_after_formatted_text() -> None:
     from telegram_publisher.publishing import _plain_media_payload
-
-    payload = _plain_media_payload(
-        '<p><strong>Жирный</strong> и <em>курсив <img src="https://example.org/image.jpg"> продолжение</em></p>'
-    )
+    payload = _plain_media_payload('<p><strong>Жирный</strong> и <em>курсив <img src="https://example.org/image.jpg"> продолжение</em></p>')
     assert payload is not None
     assert "<strong>Жирный</strong>" in payload["html"]
-    assert "<em>курсив </em>" in payload["html"]
-    assert '<a href="https://example.org/image.jpg">\u2063</a>' in payload["html"]
-    assert "<em> продолжение</em>" in payload["html"]
-    assert "<em>курсив <a " not in payload["html"]
+    assert "<em>курсив  продолжение</em>" in payload["html"]
+    assert payload["html"].endswith('<a href="https://example.org/image.jpg">ㅤ</a>')
     assert "data-publication-media-ref" not in payload["html"]
-
 
 def test_plain_publication_sends_media_via_send_message(monkeypatch) -> None:
     import asyncio
@@ -235,7 +218,8 @@ def test_plain_publication_sends_media_via_send_message(monkeypatch) -> None:
     assert len(sent_messages) == 1
     assert sent_messages[0]["parse_mode"] == "HTML"
     assert '<strong>Текст</strong>' in sent_messages[0]["text"]
-    assert '<a href="https://example.org/image.jpg">\u2063</a>' in sent_messages[0]["text"]
+    assert sent_messages[0]["text"].endswith('<a href="https://example.org/image.jpg">ㅤ</a>')
+    assert sent_messages[0]["link_preview_options"].url == "https://example.org/image.jpg"
     assert "tg://photo" not in sent_messages[0]["text"]
 
 
@@ -248,7 +232,7 @@ def test_prepare_plain_messages_returns_exact_send_message_text() -> None:
     )
 
     assert payloads == [
-        '<strong>Текст</strong><a href="https://example.org/image.jpg">⁣</a>'
+        '<strong>Текст</strong>\n\n<a href="https://example.org/image.jpg">ㅤ</a>'
     ]
 
 
@@ -290,5 +274,22 @@ def test_plain_prepared_publication_sends_reviewed_text_unchanged(monkeypatch) -
             "chat_id": "@test-channel",
             "text": reviewed_text,
             "parse_mode": "HTML",
+            "link_preview_options": __import__("telegram").LinkPreviewOptions(url="https://example.org/image.jpg"),
         }
     ]
+
+
+
+def test_plain_paragraphs_are_separated_by_one_blank_line() -> None:
+    from telegram_publisher.publishing import _sanitize_plain_html
+    result = _sanitize_plain_html("<p>Абзац 1</p><div><p>Абзац 2</p></div><p>Абзац 3</p>")
+    assert result == "Абзац 1\n\nАбзац 2\n\nАбзац 3"
+
+
+def test_plain_send_options_select_the_media_url_even_when_other_links_precede_it() -> None:
+    from telegram_publisher.publishing import _plain_send_options
+    options = _plain_send_options(
+        '<a href="https://example.org/article">Ссылка на статью</a>\n\n'
+        '<a href="https://example.org/image.jpg">ㅤ</a>'
+    )
+    assert options["link_preview_options"].url == "https://example.org/image.jpg"

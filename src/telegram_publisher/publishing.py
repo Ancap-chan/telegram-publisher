@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup, Comment, Tag
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from telegram import Bot
+from telegram import Bot, LinkPreviewOptions
 
 
 TEXT_LIMIT = 4096
@@ -217,7 +217,9 @@ def _sanitize_plain_html(content: str, *, preserve_media: bool = False) -> str:
                 node.attrs = {"href": href}
         else:
             node.attrs = {}
-    return soup.decode_contents().strip()
+    cleaned = soup.decode_contents().replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def _rich_payload(
@@ -302,7 +304,7 @@ def _rich_payload(
 
 
 def _plain_media_payload(content: str, image_path: str | None = None) -> dict | None:
-    """Подготовить обычное сообщение с одной невидимой ссылкой на публичное медиа."""
+    """Подготовить обычное сообщение с невидимой ссылкой на публичное медиа в конце."""
     soup = BeautifulSoup(content, "html.parser")
     media_nodes = list(soup.find_all(["img", "video"]))
     if len(media_nodes) > 1:
@@ -316,78 +318,33 @@ def _plain_media_payload(content: str, image_path: str | None = None) -> dict | 
             "Для обычного сообщения изображение или видео должно иметь публичный URL. "
             "Локальный файл можно отправить в режиме «Подпись к изображению» или «Рич-текст»."
         )
-
-    media_node = media_nodes[0]
-    source = str(media_node.get("src", "")).strip()
+    source = str(media_nodes[0].get("src", "")).strip()
     if not source.lower().startswith(("https://", "http://")):
         raise ValueError(
             "Для обычного сообщения ссылка на медиа должна вести на публичный URL. "
             "Изображение из буфера обмена без публичного URL нельзя встроить этим способом."
         )
+    safe_html = _sanitize_plain_html(soup.decode_contents())
+    result = BeautifulSoup(safe_html, "html.parser")
+    media_anchor = result.new_tag("a", href=source)
+    # Hangul Filler (U+3164) оказался надёжнее для создания превью Telegram.
+    media_anchor.string = "\u3164"
+    if result.contents:
+        result.append(result.new_string("\n\n"))
+    result.append(media_anchor)
+    return {"html": result.decode_contents()}
 
-    safe_html = _sanitize_plain_html(soup.decode_contents(), preserve_media=True)
-    soup = BeautifulSoup(safe_html, "html.parser")
-    media_node = soup.find(["img", "video"])
-    if media_node is None:
-        raise ValueError("Не удалось подготовить изображение или видео для публикации.")
-    source = str(media_node.get("src", "")).strip()
-    media_anchor = soup.new_tag("a", href=source)
-    media_anchor["data-publication-media-ref"] = "1"
-    media_anchor.string = "\u2063"
-    inline_tags = {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "a", "code"}
 
-    def is_media_ref(node: object) -> bool:
-        return isinstance(node, Tag) and node.get("data-publication-media-ref") == "1"
-
-    def transform(node: object) -> list:
-        if node is media_node:
-            return [media_anchor]
-        if not isinstance(node, Tag):
-            return [copy(node)]
-
-        transformed_children: list = []
-        for child in list(node.contents):
-            transformed_children.extend(transform(child))
-
-        if node.name in inline_tags and any(is_media_ref(child) for child in transformed_children):
-            result: list = []
-            current = copy(node)
-            current.clear()
-            for child in transformed_children:
-                if is_media_ref(child):
-                    if current.contents:
-                        result.append(current)
-                    result.append(child)
-                    current = copy(node)
-                    current.clear()
-                else:
-                    current.append(child)
-            if current.contents:
-                result.append(current)
-            return result
-
-        clone = copy(node)
-        clone.clear()
-        for child in transformed_children:
-            clone.append(child)
-        return [clone]
-
-    output = []
-    for child in list(soup.contents):
-        output.extend(transform(child))
-
-    def remove_internal_marker(node: object) -> None:
-        if not isinstance(node, Tag):
-            return
-        node.attrs.pop("data-publication-media-ref", None)
-        for child in list(node.contents):
-            remove_internal_marker(child)
-
-    for node in output:
-        remove_internal_marker(node)
-
-    return {"html": "".join(str(node) for node in output)}
-
+def _plain_send_options(message_html: str) -> dict:
+    """Явно выбрать URL медиа для превью, не полагаясь на порядок ссылок в тексте."""
+    soup = BeautifulSoup(message_html, "html.parser")
+    for anchor in soup.find_all("a", href=True):
+        if anchor.get_text() != "\u3164":
+            continue
+        source = str(anchor.get("href", "")).strip()
+        if source.lower().startswith(("https://", "http://")):
+            return {"link_preview_options": LinkPreviewOptions(url=source)}
+    return {}
 
 async def _send_rich(
     token: str,
@@ -515,6 +472,7 @@ async def send_publication(
                     chat_id=chat_id,
                     text=message_html,
                     parse_mode="HTML",
+                    **_plain_send_options(message_html),
                 )
         return len(prepared_messages)
 
@@ -531,6 +489,7 @@ async def send_publication(
                     chat_id=chat_id,
                     text=message_html,
                     parse_mode="HTML",
+                    **_plain_send_options(message_html),
                 )
         return len(prepared_messages)
 

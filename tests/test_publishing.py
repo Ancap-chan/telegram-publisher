@@ -113,17 +113,16 @@ def test_rich_payload_ignores_non_public_media_urls() -> None:
     assert payload["html"] == ""
 
 
-def test_plain_media_payload_uses_invisible_link_to_public_image_url() -> None:
+def test_plain_media_payload_extracts_public_image_url():
     from telegram_publisher.publishing import _plain_media_payload
 
     payload = _plain_media_payload(
         '<p><strong>Текст</strong></p><img src="https://example.org/image.jpg">'
     )
     assert payload is not None
-    assert "media" not in payload
-    assert '<strong>Текст</strong>' in payload["html"]
-    assert '<a href="https://example.org/image.jpg">\u2063</a>' in payload["html"]
-    assert "<img" not in payload["html"]
+    assert payload["media_type"] == "photo"
+    assert payload["media_url"] == "https://example.org/image.jpg"
+    assert payload["html"].strip() == "<strong>Текст</strong>"
 
 
 def test_plain_media_payload_rejects_multiple_media() -> None:
@@ -135,13 +134,14 @@ def test_plain_media_payload_rejects_multiple_media() -> None:
         )
 
 
-def test_plain_media_payload_supports_video_url() -> None:
+def test_plain_media_payload_extracts_video_url():
     from telegram_publisher.publishing import _plain_media_payload
 
     payload = _plain_media_payload('<p>Текст</p><video controls src="https://example.org/movie.mp4"></video>')
     assert payload is not None
-    assert "media" not in payload
-    assert '<a href="https://example.org/movie.mp4">\u2063</a>' in payload["html"]
+    assert payload["media_type"] == "video"
+    assert payload["media_url"] == "https://example.org/movie.mp4"
+    assert "Текст" in payload["html"]
 
 
 def test_plain_media_payload_rejects_data_uri_without_public_url() -> None:
@@ -173,38 +173,11 @@ def test_rich_payload_uploads_pasted_data_uri_image() -> None:
     assert 'tg://photo?id=publication_media_1' in payload['html']
 
 
-def test_plain_media_payload_keeps_image_outside_inline_formatting() -> None:
-    from telegram_publisher.publishing import _plain_media_payload
-
-    payload = _plain_media_payload(
-        '<p><strong>До <img src="https://example.org/image.jpg"> после</strong></p>'
-    )
-    assert payload is not None
-    assert "<strong>До </strong>" in payload["html"]
-    assert '<a href="https://example.org/image.jpg">\u2063</a>' in payload["html"]
-    assert "<strong> после</strong>" in payload["html"]
-    assert "<strong>До <a " not in payload["html"]
-
-
-def test_plain_media_payload_splits_formatting_around_media_reference() -> None:
-    from telegram_publisher.publishing import _plain_media_payload
-
-    payload = _plain_media_payload(
-        '<p><strong>Жирный</strong> и <em>курсив <img src="https://example.org/image.jpg"> продолжение</em></p>'
-    )
-    assert payload is not None
-    assert "<strong>Жирный</strong>" in payload["html"]
-    assert "<em>курсив </em>" in payload["html"]
-    assert '<a href="https://example.org/image.jpg">\u2063</a>' in payload["html"]
-    assert "<em> продолжение</em>" in payload["html"]
-    assert "<em>курсив <a " not in payload["html"]
-    assert "data-publication-media-ref" not in payload["html"]
-
-
-def test_plain_publication_sends_media_via_send_message(monkeypatch) -> None:
+def test_plain_publication_sends_image_as_photo(monkeypatch):
     import asyncio
     from telegram_publisher import publishing
 
+    sent_photos = []
     sent_messages = []
 
     class FakeBot:
@@ -216,6 +189,9 @@ def test_plain_publication_sends_media_via_send_message(monkeypatch) -> None:
 
         async def __aexit__(self, *_args):
             return False
+
+        async def send_photo(self, **kwargs):
+            sent_photos.append(kwargs)
 
         async def send_message(self, **kwargs):
             sent_messages.append(kwargs)
@@ -232,8 +208,52 @@ def test_plain_publication_sends_media_via_send_message(monkeypatch) -> None:
     )
 
     assert sent == 1
+    assert len(sent_photos) == 1
+    assert sent_photos[0]["photo"] == "https://example.org/image.jpg"
+    assert sent_photos[0]["caption"] == "<strong>Текст</strong>"
+    assert sent_photos[0]["parse_mode"] == "HTML"
+    assert sent_messages == []
+
+
+def test_plain_publication_sends_long_text_separately_from_photo(monkeypatch):
+    import asyncio
+    from telegram_publisher import publishing
+
+    sent_photos = []
+    sent_messages = []
+
+    class FakeBot:
+        def __init__(self, token):
+            self.token = token
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send_photo(self, **kwargs):
+            sent_photos.append(kwargs)
+
+        async def send_message(self, **kwargs):
+            sent_messages.append(kwargs)
+
+    monkeypatch.setattr(publishing, "Bot", FakeBot)
+    text = "А" * 1500
+    html_text = f'<p>{text}</p><img src="https://example.org/image.jpg">'
+
+    sent = asyncio.run(
+        publishing.send_publication(
+            "test-token",
+            "@test-channel",
+            html_text,
+            mode="plain",
+        )
+    )
+
+    assert sent == 2
+    assert len(sent_photos) == 1
+    assert "caption" not in sent_photos[0]
     assert len(sent_messages) == 1
+    assert text in sent_messages[0]["text"]
     assert sent_messages[0]["parse_mode"] == "HTML"
-    assert '<strong>Текст</strong>' in sent_messages[0]["text"]
-    assert '<a href="https://example.org/image.jpg">\u2063</a>' in sent_messages[0]["text"]
-    assert "tg://photo" not in sent_messages[0]["text"]

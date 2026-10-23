@@ -280,7 +280,12 @@ seriesCheckbox.addEventListener('change',()=>{
 });
 function currentResult(action){
  const series=isSeriesMode();
- return {action,html:editor.innerHTML,parts:series?htmlParts():[],profile_id:channelSelect.value||null,mode:modeSelect.value,series};
+ const cleanEditor=document.createElement('div');
+ for(const node of Array.from(editor.childNodes)){
+  if(node.nodeType===1&&node.classList.contains('series-break'))continue;
+  cleanEditor.appendChild(node.cloneNode(true));
+ }
+ return {action,html:cleanEditor.innerHTML,parts:series?htmlParts():[],profile_id:channelSelect.value||null,mode:modeSelect.value,series};
 }
 document.getElementById('publish').onclick=async()=>{
  if(!channelSelect.value){

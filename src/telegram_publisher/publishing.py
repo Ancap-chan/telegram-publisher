@@ -154,12 +154,15 @@ def _plain_text_from_html(content: str) -> str:
     return soup.get_text().strip()
 
 
-def _sanitize_plain_html(content: str) -> str:
-    """Оставить только форматирование, поддерживаемое обычными сообщениями Telegram."""
+def _sanitize_plain_html(content: str, *, preserve_media: bool = False) -> str:
+    """Оставить поддерживаемое Telegram форматирование и при необходимости медиа."""
     soup = BeautifulSoup(content, "html.parser")
     for comment in soup.find_all(string=lambda value: isinstance(value, Comment)):
         comment.extract()
-    for node in soup.find_all(["script", "style", "img", "video", "table", "iframe"]):
+    blocked_nodes = ["script", "style", "table", "iframe"]
+    if not preserve_media:
+        blocked_nodes.extend(["img", "video"])
+    for node in soup.find_all(blocked_nodes):
         node.decompose()
     for node in list(soup.find_all(["ul", "ol"])):
         node.unwrap()
@@ -177,11 +180,19 @@ def _sanitize_plain_html(content: str) -> str:
         node.name = "b"
         node.insert_after("\n")
     allowed = {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "a", "code", "pre", "blockquote"}
+    if preserve_media:
+        allowed.update({"img", "video"})
     for node in list(soup.find_all(True)):
         if node.name not in allowed:
             node.unwrap()
             continue
-        if node.name == "a":
+        if node.name in {"img", "video"}:
+            source = str(node.get("src", "")).strip()
+            if not source.lower().startswith(("https://", "http://", "data:image/")):
+                node.decompose()
+            else:
+                node.attrs = {"src": source}
+        elif node.name == "a":
             href = str(node.get("href", "")).strip()
             if not href.lower().startswith(("https://", "http://", "tg://", "mailto:")):
                 node.unwrap()
@@ -274,26 +285,22 @@ def _rich_payload(
 
 
 def _plain_media_payload(content: str, image_path: str | None = None) -> dict | None:
-    """Подготовить обычное сообщение с не более чем одним медиа через невидимую ссылку."""
+    """Подготовить обычное сообщение, сохраняя медиа на исходном месте в разметке."""
     soup = BeautifulSoup(content, "html.parser")
     media_nodes = list(soup.find_all(["img", "video"]))
     if len(media_nodes) > 1:
         raise ValueError("В одном обычном сообщении допускается только одно изображение или видео.")
     if media_nodes and image_path:
         raise ValueError("В одном обычном сообщении допускается только одно медиа. Удали встроенное изображение или отдельный файл.")
-    media_markup = ""
     if media_nodes:
-        media_node = media_nodes[0]
-        source = str(media_node.get("src", "")).strip()
+        source = str(media_nodes[0].get("src", "")).strip()
         if not source.lower().startswith(("https://", "http://", "data:image/png;base64,", "data:image/jpeg;base64,", "data:image/jpg;base64,", "data:image/gif;base64,", "data:image/webp;base64,")):
             raise ValueError("Для медиа в обычном сообщении укажи публичный URL или вставь изображение из буфера обмена.")
-        media_markup = str(media_node)
-        media_node.decompose()
-    if not media_markup and not image_path:
+    if not media_nodes and not image_path:
         return None
-    safe_text = _sanitize_plain_html(soup.decode_contents())
+    safe_html = _sanitize_plain_html(soup.decode_contents(), preserve_media=bool(media_nodes))
     payload = _rich_payload(
-        safe_text + media_markup,
+        safe_html,
         image_path,
         rich_formatting=True,
         invisible_media_link=True,

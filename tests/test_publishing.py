@@ -171,7 +171,7 @@ def test_rich_payload_uploads_pasted_data_uri_image() -> None:
 
 
 
-def test_plain_media_payload_keeps_image_inside_formatted_text() -> None:
+def test_plain_media_payload_keeps_image_outside_inline_formatting() -> None:
     from telegram_publisher.publishing import _plain_media_payload
 
     payload = _plain_media_payload(
@@ -179,11 +179,10 @@ def test_plain_media_payload_keeps_image_inside_formatted_text() -> None:
     )
     assert payload is not None
     assert payload["media"][0]["media"]["media"] == "https://example.org/image.jpg"
-    assert "<strong>До " in payload["html"]
-    assert '<a href="tg://photo?id=publication_media_1">\u2063</a>' in payload["html"]
-    assert " после</strong>" in payload["html"]
-
-
+    assert "<strong>До </strong>" in payload["html"]
+    assert '<a href="tg://photo?id=publication_media_1">\\u2063</a>' in payload["html"]
+    assert "<strong> после</strong>" in payload["html"]
+    assert "<strong>До <a " not in payload["html"]
 def test_plain_media_payload_keeps_formatted_text_with_data_uri_image() -> None:
     from telegram_publisher.publishing import _plain_media_payload
 
@@ -193,5 +192,21 @@ def test_plain_media_payload_keeps_formatted_text_with_data_uri_image() -> None:
     assert payload is not None
     assert payload["media"][0]["media"]["media"] == "attach://inline_media_1"
     assert payload["_upload_files"][0]["data"] == b"hello"
-    assert "<em>До " in payload["html"]
+    assert "<em>До </em>" in payload["html"]
     assert " после</em>" in payload["html"]
+    assert "<em>До <a " not in payload["html"]
+
+
+def test_plain_media_payload_splits_formatting_around_media_reference() -> None:
+    from telegram_publisher.publishing import _plain_media_payload
+
+    payload = _plain_media_payload(
+        '<p><strong>Жирный</strong> и <em>курсив <img src="https://example.org/image.jpg"> продолжение</em></p>'
+    )
+    assert payload is not None
+    assert "<strong>Жирный</strong>" in payload["html"]
+    assert "<em>курсив </em>" in payload["html"]
+    assert '<a href="tg://photo?id=publication_media_1">\\u2063</a>' in payload["html"]
+    assert "<em> продолжение</em>" in payload["html"]
+    assert "<em>курсив <a " not in payload["html"]
+    assert "data-publication-media-ref" not in payload["html"]

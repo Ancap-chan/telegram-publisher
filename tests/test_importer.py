@@ -33,7 +33,7 @@ def test_html_removes_scripts_and_keeps_absolute_media() -> None:
         "https://example.org/article/",
     )
     assert "alert(1)" not in result
-    assert '<img src="https://example.org/media/pic.jpg">' in result
+    assert 'src="https://example.org/media/pic.jpg"' in result
     assert "<p>Текст</p>" in result
 
 

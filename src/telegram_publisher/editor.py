@@ -184,9 +184,14 @@ document.getElementById('publish').onclick=async()=>{
   return;
  }
  if(!confirm('Опубликовать пост в выбранном канале?'))return;
+ const publishButton=document.getElementById('publish');
+ publishButton.disabled=true;
  document.getElementById('status').textContent='Подготовка публикации…';
  try{await window.pywebview.api.publish(currentResult('publish'));}
- catch(error){document.getElementById('status').textContent='Не удалось начать публикацию: '+(error&&error.message?error.message:String(error));}
+ catch(error){
+  publishButton.disabled=false;
+  document.getElementById('status').textContent='Не удалось начать публикацию: '+(error&&error.message?error.message:String(error));
+ }
 };
 document.getElementById('manage').onclick=async()=>{await window.pywebview.api.finish(currentResult('manage_profiles'))};
 document.getElementById('cancel').onclick=async()=>{await window.pywebview.api.finish(currentResult('cancel'))};
@@ -198,7 +203,10 @@ async function pollEditorStatus(){
   const update=await window.pywebview.api.get_status();
   if(update){
    if(update.clear)editor.innerHTML='';
-   if(update.message)document.getElementById('status').textContent=update.message;
+   if(update.message){
+    document.getElementById('status').textContent=update.message;
+    if(!update.message.startsWith('Отправка'))document.getElementById('publish').disabled=false;
+   }
   }
  }catch(error){}
  finally{statusPolling=false;}

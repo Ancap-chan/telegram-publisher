@@ -321,7 +321,7 @@ def _plain_media_payload(content: str, image_path: str | None = None) -> dict | 
     source = str(media_node.get("src", "")).strip()
     if not source.lower().startswith(("https://", "http://")):
         raise ValueError(
-            "Для обычного сообщения ссылка на медиа должна вести на общедоступный URL. "
+            "Для обычного сообщения ссылка на медиа должна вести на публичный URL. "
             "Изображение из буфера обмена без публичного URL нельзя встроить этим способом."
         )
 

@@ -695,6 +695,7 @@ class PublisherWindow:
             if from_editor:
                 self._write_editor_status("Настройки канала не заполнены. Проверь профиль и токен.")
                 self.publishing_from_editor = False
+                self.finalized_plain_parts = None
             else:
                 messagebox.showerror(
                     "Настройки не заполнены",
@@ -716,6 +717,7 @@ class PublisherWindow:
             if from_editor:
                 self._write_editor_status("Добавь текст, изображение или видео перед публикацией.")
                 self.publishing_from_editor = False
+                self.finalized_plain_parts = None
             else:
                 messagebox.showwarning("Пустая публикация", "Добавь текст или выбери изображение.")
             return
@@ -726,6 +728,7 @@ class PublisherWindow:
             if from_editor:
                 self._write_editor_status(warning)
                 self.publishing_from_editor = False
+                self.finalized_plain_parts = None
             else:
                 messagebox.showwarning("Слишком длинный текст", warning, parent=self.root)
             return

@@ -237,3 +237,58 @@ def test_plain_publication_sends_media_via_send_message(monkeypatch) -> None:
     assert '<strong>Текст</strong>' in sent_messages[0]["text"]
     assert '<a href="https://example.org/image.jpg">\u2063</a>' in sent_messages[0]["text"]
     assert "tg://photo" not in sent_messages[0]["text"]
+
+
+
+def test_prepare_plain_messages_returns_exact_send_message_text() -> None:
+    from telegram_publisher.publishing import prepare_plain_messages
+
+    payloads = prepare_plain_messages(
+        '<p><strong>Текст</strong></p><img src="https://example.org/image.jpg">'
+    )
+
+    assert payloads == [
+        '<strong>Текст</strong><a href="https://example.org/image.jpg">⁣</a>'
+    ]
+
+
+def test_plain_prepared_publication_sends_reviewed_text_unchanged(monkeypatch) -> None:
+    import asyncio
+    from telegram_publisher import publishing
+
+    sent_messages = []
+
+    class FakeBot:
+        def __init__(self, token):
+            self.token = token
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send_message(self, **kwargs):
+            sent_messages.append(kwargs)
+
+    monkeypatch.setattr(publishing, "Bot", FakeBot)
+    reviewed_text = '<strong>Финальный текст</strong><a href="https://example.org/image.jpg">⁣</a>'
+
+    sent = asyncio.run(
+        publishing.send_publication(
+            "test-token",
+            "@test-channel",
+            "исходный текст",
+            mode="plain_prepared",
+            parts=[reviewed_text],
+        )
+    )
+
+    assert sent == 1
+    assert sent_messages == [
+        {
+            "chat_id": "@test-channel",
+            "text": reviewed_text,
+            "parse_mode": "HTML",
+        }
+    ]

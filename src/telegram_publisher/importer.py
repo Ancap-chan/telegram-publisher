@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import codecs
 import html
+import json
 import ipaddress
 import re
 import socket

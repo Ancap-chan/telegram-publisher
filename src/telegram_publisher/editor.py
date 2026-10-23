@@ -167,9 +167,22 @@ document.querySelectorAll('[data-cmd]').forEach(button=>button.addEventListener(
 }));
 function askUrl(label){const value=prompt(label,'https://');return value&&/^https?:\/\//i.test(value)?value.trim():null}
 document.getElementById('link').onclick=()=>{const url=askUrl('Публичный URL ссылки');if(url){editor.focus();document.execCommand('createLink',false,url)}};
+function currentPartMediaCount(){
+ if(!isSeriesMode())return partMediaCount(Array.from(editor.childNodes).filter(node=>!(node.nodeType===1&&node.classList.contains('series-break'))));
+ const selection=window.getSelection();
+ let selected=selection&&selection.anchorNode;
+ while(selected&&selected.parentNode!==editor)selected=selected.parentNode;
+ const rawParts=[[]];
+ let selectedIndex=0;
+ for(const node of Array.from(editor.childNodes)){
+  if(node.nodeType===1&&node.classList.contains('series-break')){rawParts.push([]);continue}
+  rawParts[rawParts.length-1].push(node);
+  if(selected&&(node===selected||node.contains&&node.contains(selected)))selectedIndex=rawParts.length-1;
+ }
+ return partMediaCount(rawParts[selectedIndex]||[]);
+}
 function insertMediaFromUrl(kind){
- const current=partNodes().flatMap(part=>part);
- if(!isRichMode()&&partMediaCount(current)>=1){document.getElementById('status').textContent='В обычном сообщении допускается только одно изображение или видео.';return}
+ if(!isRichMode()&&currentPartMediaCount()>=1){document.getElementById('status').textContent='В одном обычном сообщении допускается только одно изображение или видео.';return}
  const label=kind==='image'?'Публичный URL изображения':'Публичный URL видео';
  const url=askUrl(label);
  if(!url)return;

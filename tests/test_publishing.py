@@ -125,7 +125,7 @@ def test_plain_media_payload_uses_one_invisible_link() -> None:
         "media": {"type": "photo", "media": "https://example.org/image.jpg"},
     }]
     assert '<strong>Текст</strong>' in payload["html"]
-    assert '<a href="tg://photo?id=publication_media_1">\\u2063</a>' in payload["html"]
+    assert '<a href="tg://photo?id=publication_media_1">\u2063</a>' in payload["html"]
     assert "<img" not in payload["html"]
 
 
@@ -144,4 +144,4 @@ def test_plain_media_payload_supports_video() -> None:
     payload = _plain_media_payload('<p>Текст</p><video controls src="https://example.org/movie.mp4"></video>')
     assert payload is not None
     assert payload["media"][0]["media"]["type"] == "video"
-    assert '<a href="tg://video?id=publication_media_1">\\u2063</a>' in payload["html"]
+    assert '<a href="tg://video?id=publication_media_1">\u2063</a>' in payload["html"]

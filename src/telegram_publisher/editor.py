@@ -151,7 +151,21 @@ editor.addEventListener('contextmenu',event=>{
  if(selectedBreak&&selectedBreak!==marker)selectedBreak.classList.remove('selected');
  selectedBreak=marker||null;
  if(selectedBreak)selectedBreak.classList.add('selected');
- else rememberEditorSelection();
+ else{
+  const selection=window.getSelection();
+  const hasSelection=selection&&selection.rangeCount&&!selection.getRangeAt(0).collapsed&&editor.contains(selection.anchorNode)&&editor.contains(selection.focusNode);
+  if(hasSelection)rememberEditorSelection();
+  else{
+   let pointRange=null;
+   if(document.caretRangeFromPoint)pointRange=document.caretRangeFromPoint(event.clientX,event.clientY);
+   else if(document.caretPositionFromPoint){
+    const position=document.caretPositionFromPoint(event.clientX,event.clientY);
+    if(position){pointRange=document.createRange();pointRange.setStart(position.offsetNode,position.offset);pointRange.collapse(true)}
+   }
+   if(pointRange&&(pointRange.commonAncestorContainer===editor||editor.contains(pointRange.commonAncestorContainer)))savedRange=pointRange.cloneRange();
+   else rememberEditorSelection();
+  }
+ }
  contextMenu.querySelector('[data-action="insert-break"]').hidden=!isSeriesMode();
  contextMenu.querySelector('[data-action="delete-break"]').hidden=!selectedBreak;
  contextMenu.hidden=false;

@@ -334,7 +334,7 @@ def _plain_media_payload(content: str, image_path: str | None = None) -> dict | 
     media_anchor = soup.new_tag("a", href=source)
     media_anchor["data-publication-media-ref"] = "1"
     media_anchor.string = "\u2063"
-    inline_tags = {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "code"}
+    inline_tags = {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "a", "code"}
 
     def is_media_ref(node: object) -> bool:
         return isinstance(node, Tag) and node.get("data-publication-media-ref") == "1"

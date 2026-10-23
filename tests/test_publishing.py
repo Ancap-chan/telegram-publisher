@@ -145,3 +145,26 @@ def test_plain_media_payload_supports_video() -> None:
     assert payload is not None
     assert payload["media"][0]["media"]["type"] == "video"
     assert '<a href="tg://video?id=publication_media_1">\u2063</a>' in payload["html"]
+
+
+
+def test_plain_html_removes_html_comments() -> None:
+    from telegram_publisher.publishing import _sanitize_plain_html
+
+    result = _sanitize_plain_html('<p>Текст</p><!-- wp:paragraph --><p>Продолжение</p>')
+    assert '<!--' not in result
+    assert 'Продолжение' in result
+
+
+def test_rich_payload_uploads_pasted_data_uri_image() -> None:
+    from telegram_publisher.publishing import _rich_payload
+
+    payload = _rich_payload(
+        '<p>Текст</p><img src="data:image/png;base64,aGVsbG8=">',
+        None,
+        rich_formatting=True,
+    )
+    assert payload['media'][0]['media']['media'] == 'attach://inline_media_1'
+    assert payload['_upload_files'][0]['field'] == 'inline_media_1'
+    assert payload['_upload_files'][0]['data'] == b'hello'
+    assert 'tg://photo?id=publication_media_1' in payload['html']

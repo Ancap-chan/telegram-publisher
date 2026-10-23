@@ -45,7 +45,7 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 <button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button>
 <button data-cmd="bold"><b>Жирный</b></button><button data-cmd="italic"><i>Курсив</i></button><button data-cmd="underline"><u>Подчёркнутый</u></button><button data-cmd="strikeThrough"><s>Зачёркнутый</s></button>
 <button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button data-cmd="formatBlock" data-value="h2" data-rich-only>Заголовок</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
-<button id="link">Ссылка</button><button id="image" data-rich-only>Изображение по URL</button><button id="video" data-rich-only>Видео по URL</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span>
+<button id="link">Ссылка</button><button id="image">Изображение по URL</button><button id="video">Видео по URL</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span>
 </header>
 <div id="series-status" class="series-status" aria-live="polite" hidden></div><main><div id="editor" contenteditable="true" spellcheck="true"></div></main>
 <div id="context-menu" class="context-menu" hidden>
@@ -167,10 +167,23 @@ document.querySelectorAll('[data-cmd]').forEach(button=>button.addEventListener(
 }));
 function askUrl(label){const value=prompt(label,'https://');return value&&/^https?:\/\//i.test(value)?value.trim():null}
 document.getElementById('link').onclick=()=>{const url=askUrl('Публичный URL ссылки');if(url){editor.focus();document.execCommand('createLink',false,url)}};
-document.getElementById('image').onclick=()=>{const url=askUrl('Публичный URL изображения');if(url){editor.focus();document.execCommand('insertHTML',false,'<p><img src="'+url.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'" alt=""></p>')}};
-document.getElementById('video').onclick=()=>{const url=askUrl('Публичный URL видео');if(url){editor.focus();document.execCommand('insertHTML',false,'<p><video controls src="'+url.replace(/&/g,'&amp;').replace(/"/g,'&quot;')+'"></video></p>')}};
+function insertMediaFromUrl(kind){
+ const current=partNodes().flatMap(part=>part);
+ if(!isRichMode()&&partMediaCount(current)>=1){document.getElementById('status').textContent='В обычном сообщении допускается только одно изображение или видео.';return}
+ const label=kind==='image'?'Публичный URL изображения':'Публичный URL видео';
+ const url=askUrl(label);
+ if(!url)return;
+ editor.focus();
+ const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+ const markup=kind==='image'?'<p><img src="'+safe+'" alt=""></p>':'<p><video controls src="'+safe+'"></video></p>';
+ document.execCommand('insertHTML',false,markup);
+ updateSeriesStatus();
+}
+document.getElementById('image').onclick=()=>insertMediaFromUrl('image');
+document.getElementById('video').onclick=()=>insertMediaFromUrl('video');
 document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,Number(prompt('Количество строк','2'))||2));const cols=Math.max(1,Math.min(10,Number(prompt('Количество столбцов','2'))||2));let table='<table><tbody>';for(let r=0;r<rows;r++){table+='<tr>';for(let c=0;c<cols;c++)table+='<td><br></td>';table+='</tr>'}table+='</tbody></table><p><br></p>';editor.focus();document.execCommand('insertHTML',false,table)};
 const seriesStatus=document.getElementById('series-status');
+let draggedBreak=null;
 function isSeriesMode(){return modeSelect.value.endsWith('_series')||seriesCheckbox.checked}
 function isRichMode(){return modeSelect.value==='rich'||modeSelect.value==='rich_series'||modeSelect.value==='media_text'}
 function messageLimit(){return isRichMode()?32768:4096}
@@ -189,14 +202,18 @@ function partNodes(){
   if(node.nodeType===1&&node.classList.contains('series-break')){parts.push([]);continue}
   parts[parts.length-1].push(node);
  }
- return parts;
+ return parts.filter(nodes=>{
+  const wrapper=document.createElement('div');
+  for(const node of nodes)wrapper.appendChild(node.cloneNode(true));
+  return Boolean((wrapper.innerText||wrapper.textContent||'').trim()||wrapper.querySelector('img,video'));
+ });
 }
 function htmlParts(){
  return partNodes().map(nodes=>{
   const wrapper=document.createElement('div');
   for(const node of nodes)wrapper.appendChild(node.cloneNode(true));
   return wrapper.innerHTML.trim();
- });
+ }).filter(part=>part.length>0);
 }
 function partLength(nodes){
  const wrapper=document.createElement('div');
@@ -204,17 +221,33 @@ function partLength(nodes){
  wrapper.querySelectorAll('.series-break').forEach(node=>node.remove());
  return (wrapper.innerText||wrapper.textContent||'').trim().length;
 }
+function partMediaCount(nodes){
+ const wrapper=document.createElement('div');
+ for(const node of nodes)wrapper.appendChild(node.cloneNode(true));
+ return wrapper.querySelectorAll('img,video').length;
+}
 function updateSeriesStatus(){
  const series=isSeriesMode();
- seriesStatus.hidden=!series;
- if(!series){seriesStatus.textContent='';seriesStatus.classList.remove('warning');return true}
- const parts=partNodes();
+ const parts=series?partNodes():[Array.from(editor.childNodes).filter(node=>!(node.nodeType===1&&node.classList.contains('series-break')))];
  const limit=messageLimit();
+ const enforceSingleMedia=!isRichMode();
  const lengths=parts.map(partLength);
+ const mediaCounts=parts.map(partMediaCount);
+ const hasContent=parts.some((part,index)=>lengths[index]>0||mediaCounts[index]>0);
+ seriesStatus.hidden=!hasContent;
  const overflow=lengths.some(length=>length>limit);
- seriesStatus.classList.toggle('warning',overflow);
- seriesStatus.textContent=lengths.map((length,index)=>'Пост '+(index+1)+': '+length+'/'+limit+' символов'+(length>limit?' — превышен лимит, перенеси часть текста в другой пост.':length===limit?' — лимит заполнен, больше сюда не добавляй; перенеси часть в следующий пост.':'')).join('\n');
- return !overflow;
+ const tooMuchMedia=enforceSingleMedia&&mediaCounts.some(count=>count>1);
+ seriesStatus.classList.toggle('warning',overflow||tooMuchMedia);
+ if(!hasContent){seriesStatus.textContent='';return true}
+ seriesStatus.textContent=parts.map((part,index)=>{
+  const prefix=series?'Пост '+(index+1):'Сообщение';
+  const notes=[];
+  if(lengths[index]>limit)notes.push('превышен лимит, перенеси часть текста');
+  else if(lengths[index]===limit)notes.push('лимит заполнен, больше сюда не добавляй');
+  if(enforceSingleMedia&&mediaCounts[index]>1)notes.push('допускается не более одного изображения или видео на пост');
+  return prefix+': '+lengths[index]+'/'+limit+' символов'+(mediaCounts[index]?' · медиа: '+mediaCounts[index]:'')+(notes.length?' — '+notes.join('; ')+'.':'');
+ }).join('\n');
+ return !overflow&&!tooMuchMedia;
 }
 function updateModeUI(){
  const rich=isRichMode();
@@ -223,15 +256,89 @@ function updateModeUI(){
  seriesCheckbox.checked=modeSelect.value.endsWith('_series');
  updateSeriesStatus();
 }
+function splitOversizedNode(node,limit){
+ const originalText=node.textContent||'';
+ if(originalText.length<=limit)return [node];
+ if(node.nodeType===Node.TEXT_NODE){
+  const chunks=[];
+  let start=0;
+  while(start<originalText.length){
+   let end=Math.min(start+limit,originalText.length);
+   if(end<originalText.length){
+    const boundary=Math.max(originalText.lastIndexOf('\n',end),originalText.lastIndexOf(' ',end));
+    if(boundary>start+Math.floor(limit*0.6))end=boundary;
+   }
+   if(end<=start)end=Math.min(start+limit,originalText.length);
+   const value=originalText.slice(start,end).trim();
+   if(value)chunks.push(document.createTextNode(value));
+   start=end;
+   while(start<originalText.length&&/\s/.test(originalText[start]))start++;
+  }
+  return chunks.length?chunks:[node];
+ }
+ const working=node.cloneNode(true);
+ const media=Array.from(working.querySelectorAll('img,video'));
+ media.forEach(item=>item.remove());
+ const walker=document.createTreeWalker(working,NodeFilter.SHOW_TEXT);
+ const textNodes=[];
+ while(walker.nextNode())textNodes.push(walker.currentNode);
+ const combined=textNodes.map(item=>item.nodeValue||'').join('');
+ if(combined.length<=limit)return [node];
+ const chunks=[];
+ let start=0;
+ while(start<combined.length){
+  let end=Math.min(start+limit,combined.length);
+  if(end<combined.length){
+   const boundary=Math.max(combined.lastIndexOf('\n',end),combined.lastIndexOf(' ',end));
+   if(boundary>start+Math.floor(limit*0.6))end=boundary;
+  }
+  if(end<=start)end=Math.min(start+limit,combined.length);
+  let cursor=0,first=null,last=null,firstOffset=0,lastOffset=0;
+  for(const textNode of textNodes){
+   const size=(textNode.nodeValue||'').length;
+   if(first===null&&start<cursor+size){first=textNode;firstOffset=start-cursor}
+   if(end<=cursor+size){last=textNode;lastOffset=end-cursor;break}
+   cursor+=size;
+  }
+  if(first&&last){
+   const range=document.createRange();
+   range.setStart(first,firstOffset);
+   range.setEnd(last,lastOffset);
+   const fragment=range.cloneContents();
+   const clone=working.cloneNode(false);
+   clone.appendChild(fragment);
+   if((clone.textContent||'').trim())chunks.push(clone);
+  }
+  start=end;
+  while(start<combined.length&&/\s/.test(combined[start]))start++;
+ }
+ if(!chunks.length)return [node];
+ media.forEach(item=>chunks[0].appendChild(item.cloneNode(true)));
+ return chunks;
+}
 function autoPlaceBreaks(){
  editor.querySelectorAll('.series-break').forEach(node=>node.remove());
  const limit=messageLimit();
- let used=0;
- for(const node of Array.from(editor.childNodes)){
-  const length=(node.innerText||node.textContent||'').trim().length;
-  if(used>0&&used+length>limit){editor.insertBefore(makeBreak(),node);used=0}
-  used+=length;
+ const originals=Array.from(editor.childNodes);
+ const output=[];
+ let used=0,hasContent=false;
+ for(const node of originals){
+  const text=(node.innerText||node.textContent||'').trim();
+  const mediaCount=node.nodeType===1?node.querySelectorAll('img,video').length:0;
+  if(!text&&!mediaCount){if(output.length)output.push(node);continue}
+  const chunks=splitOversizedNode(node,limit);
+  for(let index=0;index<chunks.length;index++){
+   const chunk=chunks[index];
+   const length=(chunk.innerText||chunk.textContent||'').trim().length;
+   const chunkMedia=chunk.nodeType===1?chunk.querySelectorAll('img,video').length:0;
+   if(hasContent&&used+length>limit){output.push(makeBreak());used=0;hasContent=false}
+   output.push(chunk);
+   used+=length;
+   if(length||chunkMedia)hasContent=true;
+   if(index<chunks.length-1){output.push(makeBreak());used=0;hasContent=false}
+  }
  }
+ editor.replaceChildren(...output);
  updateSeriesStatus();
 }
 function insertBreakAtSelection(){
@@ -256,23 +363,35 @@ document.getElementById('insert-break').addEventListener('click',insertBreakAtSe
 editor.addEventListener('input',updateSeriesStatus);
 editor.addEventListener('dragstart',event=>{
  const marker=event.target.closest('.series-break');
- if(!marker)return;
+ if(!marker||!isSeriesMode())return;
+ draggedBreak=marker;
  marker.classList.add('dragging');
  event.dataTransfer.setData('text/plain','series-break');
  event.dataTransfer.effectAllowed='move';
 });
-editor.addEventListener('dragend',event=>{if(event.target.classList)event.target.classList.remove('dragging')});
+editor.addEventListener('dragend',event=>{
+ if(draggedBreak)draggedBreak.classList.remove('dragging');
+ draggedBreak=null;
+});
 editor.addEventListener('dragover',event=>{if(isSeriesMode()&&event.target.closest('#editor'))event.preventDefault()});
 editor.addEventListener('drop',event=>{
- if(!isSeriesMode()||!event.dataTransfer.types.includes('text/plain'))return;
- const marker=editor.querySelector('.series-break.dragging');
- if(!marker)return;
+ if(!isSeriesMode()||!draggedBreak)return;
  event.preventDefault();
- let target=event.target;
+ let target=null;
+ if(document.caretRangeFromPoint){
+  const range=document.caretRangeFromPoint(event.clientX,event.clientY);
+  target=range?range.startContainer:null;
+ }
+ if(!target)target=event.target;
  while(target&&target.parentNode!==editor)target=target.parentNode;
- if(target&&target!==marker)editor.insertBefore(marker,event.clientY<target.getBoundingClientRect().top+target.getBoundingClientRect().height/2?target:target.nextSibling);
- else editor.appendChild(marker);
- marker.classList.remove('dragging');
+ if(target===draggedBreak)return;
+ if(target){
+  const rect=target.nodeType===Node.ELEMENT_NODE?target.getBoundingClientRect():null;
+  const after=rect&&event.clientY>rect.top+rect.height/2;
+  editor.insertBefore(draggedBreak,after?target.nextSibling:target);
+ }else editor.appendChild(draggedBreak);
+ draggedBreak.classList.remove('dragging');
+ draggedBreak=null;
  updateSeriesStatus();
 });
 modeSelect.addEventListener('change',()=>{
@@ -306,8 +425,8 @@ document.getElementById('publish').onclick=async()=>{
   document.getElementById('status').textContent='Добавь текст, изображение или видео перед публикацией.';
   return;
  }
- if(isSeriesMode()&&!updateSeriesStatus()){
-  document.getElementById('status').textContent='Один или несколько постов превышают лимит. Перенеси часть содержимого или перемести разрыв.';
+ if(!updateSeriesStatus()){
+  document.getElementById('status').textContent='Исправь превышение лимита или оставь не более одного медиа на пост перед публикацией.';
   return;
  }
  if(!confirm('Опубликовать пост в выбранном канале?'))return;

@@ -108,3 +108,19 @@ def test_wordpress_import_includes_title_and_removes_social_sharing(monkeypatch:
     assert "<h1>Заголовок публикации</h1>" in result
     assert "<p>Основной текст</p>" in result
     assert "Поделиться" not in result
+
+
+def test_wordpress_title_falls_back_to_slug_when_page_has_no_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_download(url: str) -> tuple[str, str]:
+        if "/wp-json/wp/v2/posts?" in url:
+            return (json.dumps([{
+                "slug": "testovaya-zapis",
+                "title": {"rendered": ""},
+                "content": {"rendered": "<p>Основной текст</p>"},
+            }], ensure_ascii=False), url)
+        return "<html><body><article><p>Основной текст</p></article></body></html>", url
+
+    monkeypatch.setattr(importer, "_validate_public_url", lambda url: url)
+    monkeypatch.setattr(importer, "_download", fake_download)
+    result = importer._wordpress_content("https://example.org/testovaya-zapis/")
+    assert "<h1>Testovaya zapis</h1>" in result

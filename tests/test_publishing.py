@@ -215,6 +215,48 @@ def test_plain_media_payload_splits_formatting_around_media_reference() -> None:
 
 
 
+def test_plain_publication_sends_media_through_rich_message_transport(monkeypatch) -> None:
+    import asyncio
+    from telegram_publisher import publishing
+
+    requests = []
+
+    class FakeBot:
+        def __init__(self, token):
+            self.token = token
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send_message(self, **kwargs):
+            raise AssertionError("Сообщение с медиа не должно отправляться через sendMessage")
+
+    async def fake_to_thread(function, *args, **kwargs):
+        requests.append({"function": function, "args": args, "kwargs": kwargs})
+
+    monkeypatch.setattr(publishing, "Bot", FakeBot)
+    monkeypatch.setattr(publishing.asyncio, "to_thread", fake_to_thread)
+
+    sent = asyncio.run(
+        publishing.send_publication(
+            "test-token",
+            "@test-channel",
+            '<p><strong>Текст</strong></p><img src="https://example.org/image.jpg">',
+            mode="plain",
+        )
+    )
+
+    assert sent == 1
+    assert len(requests) == 1
+    assert requests[0]["kwargs"]["method"] == "sendRichMessage"
+    payload = requests[0]["args"][2]
+    assert '<a href="tg://photo?id=publication_media_1">⁣</a>' in payload["html"]
+    assert payload["media"][0]["media"]["media"] == "https://example.org/image.jpg"
+
+
 def test_plain_media_request_uses_rich_message_transport(monkeypatch) -> None:
     import json
     from telegram_publisher import publishing

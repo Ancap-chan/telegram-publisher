@@ -86,8 +86,18 @@ def estimate_message_count(
     return 1 if text or image_path else 0
 
 
-def _multipart_request(token: str, chat_id: str, rich_message: dict, image_path: str | None) -> None:
-    """Отправить рич-сообщение через Bot API с необязательной локальной фотографией."""
+def _multipart_request(
+    token: str,
+    chat_id: str,
+    message: dict,
+    image_path: str | None,
+    *,
+    method: str = "sendRichMessage",
+) -> None:
+    """Отправить сообщение выбранным методом Bot API с необязательными вложениями."""
+    if method not in {"sendMessage", "sendRichMessage"}:
+        raise ValueError(f"Неподдерживаемый метод публикации: {method}")
+
     boundary = "----TelegramPublisher" + uuid.uuid4().hex
     body = bytearray()
 
@@ -98,8 +108,14 @@ def _multipart_request(token: str, chat_id: str, rich_message: dict, image_path:
         body.extend(b"\r\n")
 
     add_field("chat_id", chat_id)
-    upload_files = rich_message.pop("_upload_files", [])
-    add_field("rich_message", json.dumps(rich_message, ensure_ascii=False))
+    upload_files = message.pop("_upload_files", [])
+    if method == "sendMessage":
+        add_field("text", str(message.get("html", "")))
+        add_field("parse_mode", "HTML")
+        if message.get("media"):
+            add_field("media", json.dumps(message["media"], ensure_ascii=False))
+    else:
+        add_field("rich_message", json.dumps(message, ensure_ascii=False))
 
     if image_path:
         path = Path(image_path)
@@ -126,7 +142,7 @@ def _multipart_request(token: str, chat_id: str, rich_message: dict, image_path:
 
     body.extend(f"--{boundary}--\r\n".encode("ascii"))
     request = Request(
-        f"https://api.telegram.org/bot{token}/sendRichMessage",
+        f"https://api.telegram.org/bot{token}/{method}",
         data=bytes(body),
         headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         method="POST",
@@ -135,10 +151,10 @@ def _multipart_request(token: str, chat_id: str, rich_message: dict, image_path:
         with urlopen(request, timeout=60) as response:
             result = json.loads(response.read().decode("utf-8"))
     except (HTTPError, URLError, OSError, json.JSONDecodeError) as error:
-        raise RuntimeError(f"Не удалось отправить рич-сообщение: {error}") from error
+        raise RuntimeError(f"Не удалось отправить сообщение методом {method}: {error}") from error
     if not result.get("ok"):
         raise RuntimeError(
-            "Telegram отклонил рич-сообщение: "
+            f"Telegram отклонил сообщение методом {method}: "
             + str(result.get("description", "неизвестная ошибка"))
         )
 
@@ -519,7 +535,14 @@ async def send_publication(
             for index, part in enumerate(prepared_parts):
                 payload = _plain_media_payload(part, image_path if index == 0 else None)
                 if payload:
-                    await asyncio.to_thread(_multipart_request, token, chat_id, payload, image_path if index == 0 else None)
+                    await asyncio.to_thread(
+                        _multipart_request,
+                        token,
+                        chat_id,
+                        payload,
+                        image_path if index == 0 else None,
+                        method="sendMessage",
+                    )
                 else:
                     await bot.send_message(chat_id=chat_id, text=_sanitize_plain_html(part), parse_mode="HTML")
         return len(prepared_parts)

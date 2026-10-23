@@ -302,7 +302,7 @@ def _rich_payload(
 
 
 def _plain_media_payload(content: str, image_path: str | None = None) -> dict | None:
-    """Подготовить обычное сообщение с одной невидимой ссылкой на публичное медиа."""
+    """Извлечь медиа для реальной отправки через sendPhoto или sendVideo."""
     soup = BeautifulSoup(content, "html.parser")
     media_nodes = list(soup.find_all(["img", "video"]))
     if len(media_nodes) > 1:
@@ -311,82 +311,30 @@ def _plain_media_payload(content: str, image_path: str | None = None) -> dict | 
         raise ValueError("В одном обычном сообщении допускается только одно медиа. Удали встроенное изображение или отдельный файл.")
     if not media_nodes and not image_path:
         return None
-    if image_path and not media_nodes:
-        raise ValueError(
-            "Для обычного сообщения изображение или видео должно иметь публичный URL. "
-            "Локальный файл можно отправить в режиме «Подпись к изображению» или «Рич-текст»."
-        )
 
-    media_node = media_nodes[0]
-    source = str(media_node.get("src", "")).strip()
-    if not source.lower().startswith(("https://", "http://")):
-        raise ValueError(
-            "Для обычного сообщения ссылка на медиа должна вести на публичный URL. "
-            "Изображение из буфера обмена без публичного URL нельзя встроить этим способом."
-        )
+    if image_path:
+        media_type = "photo"
+        media_source = str(Path(image_path))
+        media_path = media_source
+    else:
+        media_node = media_nodes[0]
+        media_source = str(media_node.get("src", "")).strip()
+        media_type = "video" if media_node.name == "video" else "photo"
+        if not media_source.lower().startswith(("https://", "http://")):
+            raise ValueError(
+                "Для обычного сообщения ссылка на медиа должна вести на публичный URL. "
+                "Изображение из буфера обмена без публичного URL нельзя отправить этим способом."
+            )
+        media_node.decompose()
+        media_path = None
 
-    safe_html = _sanitize_plain_html(soup.decode_contents(), preserve_media=True)
-    soup = BeautifulSoup(safe_html, "html.parser")
-    media_node = soup.find(["img", "video"])
-    if media_node is None:
-        raise ValueError("Не удалось подготовить изображение или видео для публикации.")
-    source = str(media_node.get("src", "")).strip()
-    media_anchor = soup.new_tag("a", href=source)
-    media_anchor["data-publication-media-ref"] = "1"
-    media_anchor.string = "\u2063"
-    inline_tags = {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "a", "code"}
-
-    def is_media_ref(node: object) -> bool:
-        return isinstance(node, Tag) and node.get("data-publication-media-ref") == "1"
-
-    def transform(node: object) -> list:
-        if node is media_node:
-            return [media_anchor]
-        if not isinstance(node, Tag):
-            return [copy(node)]
-
-        transformed_children: list = []
-        for child in list(node.contents):
-            transformed_children.extend(transform(child))
-
-        if node.name in inline_tags and any(is_media_ref(child) for child in transformed_children):
-            result: list = []
-            current = copy(node)
-            current.clear()
-            for child in transformed_children:
-                if is_media_ref(child):
-                    if current.contents:
-                        result.append(current)
-                    result.append(child)
-                    current = copy(node)
-                    current.clear()
-                else:
-                    current.append(child)
-            if current.contents:
-                result.append(current)
-            return result
-
-        clone = copy(node)
-        clone.clear()
-        for child in transformed_children:
-            clone.append(child)
-        return [clone]
-
-    output = []
-    for child in list(soup.contents):
-        output.extend(transform(child))
-
-    def remove_internal_marker(node: object) -> None:
-        if not isinstance(node, Tag):
-            return
-        node.attrs.pop("data-publication-media-ref", None)
-        for child in list(node.contents):
-            remove_internal_marker(child)
-
-    for node in output:
-        remove_internal_marker(node)
-
-    return {"html": "".join(str(node) for node in output)}
+    safe_html = _sanitize_plain_html(soup.decode_contents())
+    return {
+        "html": safe_html,
+        "media_type": media_type,
+        "media_url": media_source if media_path is None else None,
+        "media_path": media_path,
+    }
 
 
 async def _send_rich(
@@ -496,15 +444,55 @@ async def send_publication(
             if len(media_nodes) > 1:
                 raise ValueError(f"Пост {index}: в обычном сообщении допускается только одно изображение или видео.")
         async with Bot(token=token) as bot:
+            sent_count = 0
+        async with Bot(token=token) as bot:
             for index, part in enumerate(prepared_parts):
                 payload = _plain_media_payload(part, image_path if index == 0 else None)
                 message_html = payload["html"] if payload else _sanitize_plain_html(part)
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=message_html,
-                    parse_mode="HTML",
-                )
-        return len(prepared_parts)
+                part_length = len(_plain_text_from_html(message_html))
+                if part_length > TEXT_LIMIT:
+                    raise ValueError(f"Пост {index + 1} превышает лимит обычного сообщения Telegram ({TEXT_LIMIT} символов).")
+
+                if payload:
+                    send_media = bot.send_video if payload["media_type"] == "video" else bot.send_photo
+                    media_kwargs = {"chat_id": chat_id}
+                    if payload["media_path"]:
+                        with Path(payload["media_path"]).open("rb") as media_file:
+                            media_kwargs["video" if payload["media_type"] == "video" else "photo"] = media_file
+                            if part_length <= CAPTION_LIMIT and message_html:
+                                await send_media(
+                                    **media_kwargs,
+                                    caption=message_html,
+                                    parse_mode="HTML",
+                                )
+                            else:
+                                await send_media(**media_kwargs)
+                    else:
+                        media_kwargs["video" if payload["media_type"] == "video" else "photo"] = payload["media_url"]
+                        if part_length <= CAPTION_LIMIT and message_html:
+                            await send_media(
+                                **media_kwargs,
+                                caption=message_html,
+                                parse_mode="HTML",
+                            )
+                        else:
+                            await send_media(**media_kwargs)
+                    sent_count += 1
+                    if part_length > CAPTION_LIMIT:
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=message_html,
+                            parse_mode="HTML",
+                        )
+                        sent_count += 1
+                else:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=message_html,
+                        parse_mode="HTML",
+                    )
+                    sent_count += 1
+        return sent_count
 
     if mode == "media_text":
         if not image_path:

@@ -189,6 +189,16 @@ function hideContextMenu(){contextMenu.hidden=true}
 editor.addEventListener('mouseup',rememberEditorSelection);
 editor.addEventListener('keyup',rememberEditorSelection);
 editor.addEventListener('input',rememberEditorSelection);
+editor.addEventListener('paste',event=>{
+ const clipboard=event.clipboardData;
+ if(!clipboard)return;
+ const markup=clipboard.getData('text/html');
+ if(markup){
+  event.preventDefault();
+  insertClipboardHtml(markup);
+  return;
+ }
+});
 document.addEventListener('selectionchange',rememberEditorSelection);
 editor.addEventListener('click',event=>{
  const marker=event.target.closest('.series-break');

@@ -280,20 +280,41 @@ def _decode_text_file(path: Path) -> str:
     except UnicodeDecodeError:
         pass
 
+    detected_text = None
+    detected_coherence = 0.0
     try:
         detected = from_bytes(data).best()
         if detected is not None:
-            decoded = str(detected)
-            if "\ufffd" not in decoded:
-                return decoded
+            detected_text = str(detected)
+            detected_coherence = float(detected.coherence or 0.0)
     except (LookupError, ValueError):
         pass
 
-    for encoding in ("utf-16", "cp1251", "cp1252", "latin-1"):
+    # Для коротких русскоязычных файлов детектор часто путает Windows-1251
+    # с похожими однобайтовыми кодировками.
+    try:
+        cyrillic = data.decode("cp1251")
+        cyrillic_score = sum("\u0400" <= char <= "\u04ff" for char in cyrillic) / max(len(cyrillic), 1)
+        detected_score = (
+            sum("\u0400" <= char <= "\u04ff" for char in detected_text) / max(len(detected_text), 1)
+            if detected_text
+            else 0.0
+        )
+        if cyrillic_score > 0.2 and cyrillic_score > detected_score + 0.03:
+            return cyrillic
+    except UnicodeDecodeError:
+        pass
+
+    if detected_text is not None and "\ufffd" not in detected_text and detected_coherence > 0:
+        return detected_text
+
+    for encoding in ("utf-16", "cp1250", "cp1252", "latin-1"):
         try:
             return data.decode(encoding)
         except (UnicodeDecodeError, LookupError):
             continue
+    if detected_text is not None:
+        return detected_text
     raise ValueError("Не удалось определить кодировку текстового файла.")
 
 

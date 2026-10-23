@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from copy import copy
 import html
 import json
 import mimetypes
@@ -85,8 +86,18 @@ def estimate_message_count(
     return 1 if text or image_path else 0
 
 
-def _multipart_request(token: str, chat_id: str, rich_message: dict, image_path: str | None) -> None:
-    """Отправить рич-сообщение через Bot API с необязательной локальной фотографией."""
+def _multipart_request(
+    token: str,
+    chat_id: str,
+    message: dict,
+    image_path: str | None,
+    *,
+    method: str = "sendRichMessage",
+) -> None:
+    """Отправить сообщение выбранным методом Bot API с необязательными вложениями."""
+    if method not in {"sendMessage", "sendRichMessage"}:
+        raise ValueError(f"Неподдерживаемый метод публикации: {method}")
+
     boundary = "----TelegramPublisher" + uuid.uuid4().hex
     body = bytearray()
 
@@ -97,8 +108,14 @@ def _multipart_request(token: str, chat_id: str, rich_message: dict, image_path:
         body.extend(b"\r\n")
 
     add_field("chat_id", chat_id)
-    upload_files = rich_message.pop("_upload_files", [])
-    add_field("rich_message", json.dumps(rich_message, ensure_ascii=False))
+    upload_files = message.pop("_upload_files", [])
+    if method == "sendMessage":
+        add_field("text", str(message.get("html", "")))
+        add_field("parse_mode", "HTML")
+        if message.get("media"):
+            add_field("media", json.dumps(message["media"], ensure_ascii=False))
+    else:
+        add_field("rich_message", json.dumps(message, ensure_ascii=False))
 
     if image_path:
         path = Path(image_path)
@@ -125,7 +142,7 @@ def _multipart_request(token: str, chat_id: str, rich_message: dict, image_path:
 
     body.extend(f"--{boundary}--\r\n".encode("ascii"))
     request = Request(
-        f"https://api.telegram.org/bot{token}/sendRichMessage",
+        f"https://api.telegram.org/bot{token}/{method}",
         data=bytes(body),
         headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         method="POST",
@@ -134,10 +151,10 @@ def _multipart_request(token: str, chat_id: str, rich_message: dict, image_path:
         with urlopen(request, timeout=60) as response:
             result = json.loads(response.read().decode("utf-8"))
     except (HTTPError, URLError, OSError, json.JSONDecodeError) as error:
-        raise RuntimeError(f"Не удалось отправить рич-сообщение: {error}") from error
+        raise RuntimeError(f"Не удалось отправить сообщение методом {method}: {error}") from error
     if not result.get("ok"):
         raise RuntimeError(
-            "Telegram отклонил рич-сообщение: "
+            f"Telegram отклонил сообщение методом {method}: "
             + str(result.get("description", "неизвестная ошибка"))
         )
 
@@ -285,28 +302,127 @@ def _rich_payload(
 
 
 def _plain_media_payload(content: str, image_path: str | None = None) -> dict | None:
-    """Подготовить обычное сообщение, сохраняя медиа на исходном месте в разметке."""
+    """Подготовить обычное сообщение с одним медиа, не вкладывая его ссылку в форматирование."""
     soup = BeautifulSoup(content, "html.parser")
     media_nodes = list(soup.find_all(["img", "video"]))
     if len(media_nodes) > 1:
         raise ValueError("В одном обычном сообщении допускается только одно изображение или видео.")
     if media_nodes and image_path:
         raise ValueError("В одном обычном сообщении допускается только одно медиа. Удали встроенное изображение или отдельный файл.")
-    if media_nodes:
-        source = str(media_nodes[0].get("src", "")).strip()
-        if not source.lower().startswith(("https://", "http://", "data:image/png;base64,", "data:image/jpeg;base64,", "data:image/jpg;base64,", "data:image/gif;base64,", "data:image/webp;base64,")):
-            raise ValueError("Для медиа в обычном сообщении укажи публичный URL или вставь изображение из буфера обмена.")
     if not media_nodes and not image_path:
         return None
-    safe_html = _sanitize_plain_html(soup.decode_contents(), preserve_media=bool(media_nodes))
-    payload = _rich_payload(
-        safe_html,
-        image_path,
-        rich_formatting=True,
-        invisible_media_link=True,
-    )
-    if not payload.get("media"):
+
+    if not media_nodes:
+        safe_html = _sanitize_plain_html(soup.decode_contents())
+        payload = _rich_payload(safe_html, image_path, rich_formatting=True, invisible_media_link=True)
+        if not payload.get("media"):
+            raise ValueError("Не удалось подготовить изображение или видео для публикации.")
+        return payload
+
+    source = str(media_nodes[0].get("src", "")).strip()
+    if not source.lower().startswith((
+        "https://", "http://", "data:image/png;base64,", "data:image/jpeg;base64,",
+        "data:image/jpg;base64,", "data:image/gif;base64,", "data:image/webp;base64,",
+    )):
+        raise ValueError("Для медиа в обычном сообщении укажи публичный URL или вставь изображение из буфера обмена.")
+
+    safe_html = _sanitize_plain_html(soup.decode_contents(), preserve_media=True)
+    soup = BeautifulSoup(safe_html, "html.parser")
+    media_node = soup.find(["img", "video"])
+    if media_node is None:
         raise ValueError("Не удалось подготовить изображение или видео для публикации.")
+    source = str(media_node.get("src", "")).strip()
+    media_type = "video" if media_node.name == "video" else "photo"
+    media_id = "publication_media_1"
+    media: list[dict] = []
+    upload_files: list[dict] = []
+
+    if source.lower().startswith(("https://", "http://")):
+        media.append({"id": media_id, "media": {"type": media_type, "media": source}})
+    elif media_type == "photo" and re.match(r"^data:image/(png|jpeg|jpg|gif|webp);base64,", source, re.I):
+        header, encoded = source.split(",", 1)
+        try:
+            image_bytes = base64.b64decode(encoded, validate=True)
+        except (ValueError, base64.binascii.Error) as error:
+            raise ValueError("Не удалось прочитать изображение из буфера обмена.") from error
+        subtype_match = re.match(r"^data:image/([^;]+)", header, re.I)
+        if not subtype_match:
+            raise ValueError("Не удалось определить формат изображения из буфера обмена.")
+        subtype = subtype_match.group(1).lower()
+        mime_type = "image/jpeg" if subtype in {"jpg", "jpeg"} else f"image/{subtype}"
+        extension = "jpg" if subtype in {"jpg", "jpeg"} else subtype
+        field = "inline_media_1"
+        upload_files.append({
+            "field": field,
+            "filename": f"{field}.{extension}",
+            "mime_type": mime_type,
+            "data": image_bytes,
+        })
+        media.append({"id": media_id, "media": {"type": "photo", "media": f"attach://{field}"}})
+    else:
+        raise ValueError("Этот тип медиа нельзя вставить в обычное сообщение.")
+
+    media_anchor = soup.new_tag(
+        "a",
+        href=f"tg://{media_type if media_type == 'video' else 'photo'}?id={media_id}",
+    )
+    media_anchor["data-publication-media-ref"] = "1"
+    media_anchor.string = "\u2063"
+    inline_tags = {"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "a", "code"}
+
+    def is_media_ref(node: object) -> bool:
+        return isinstance(node, Tag) and node.get("data-publication-media-ref") == "1"
+
+    def transform(node: object) -> list:
+        if node is media_node:
+            return [media_anchor]
+        if not isinstance(node, Tag):
+            return [copy(node)]
+
+        transformed_children: list = []
+        for child in list(node.contents):
+            transformed_children.extend(transform(child))
+
+        if node.name in inline_tags and any(is_media_ref(child) for child in transformed_children):
+            result: list = []
+            current = copy(node)
+            current.clear()
+            for child in transformed_children:
+                if is_media_ref(child):
+                    if current.contents:
+                        result.append(current)
+                    result.append(child)
+                    current = copy(node)
+                    current.clear()
+                else:
+                    current.append(child)
+            if current.contents:
+                result.append(current)
+            return result
+
+        clone = copy(node)
+        clone.clear()
+        for child in transformed_children:
+            clone.append(child)
+        return [clone]
+
+    output = []
+    for child in list(soup.contents):
+        output.extend(transform(child))
+
+    def remove_internal_marker(node: object) -> None:
+        if not isinstance(node, Tag):
+            return
+        node.attrs.pop("data-publication-media-ref", None)
+        for child in list(node.contents):
+            remove_internal_marker(child)
+
+    for node in output:
+        remove_internal_marker(node)
+
+    payload: dict = {"html": "".join(str(node) for node in output), "media": media}
+    if upload_files:
+        payload["_upload_files"] = upload_files
     return payload
 
 async def _send_rich(
@@ -419,7 +535,14 @@ async def send_publication(
             for index, part in enumerate(prepared_parts):
                 payload = _plain_media_payload(part, image_path if index == 0 else None)
                 if payload:
-                    await asyncio.to_thread(_multipart_request, token, chat_id, payload, image_path if index == 0 else None)
+                    await asyncio.to_thread(
+                        _multipart_request,
+                        token,
+                        chat_id,
+                        payload,
+                        image_path if index == 0 else None,
+                        method="sendMessage",
+                    )
                 else:
                     await bot.send_message(chat_id=chat_id, text=_sanitize_plain_html(part), parse_mode="HTML")
         return len(prepared_parts)

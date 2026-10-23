@@ -399,6 +399,7 @@ class PublisherWindow:
                 f"Не удалось открыть редактор: {error}",
                 parent=self.root,
             )
+            self.root.destroy()
             return
         self._poll_editor(result_path)
 
@@ -628,7 +629,7 @@ class PublisherWindow:
 
         message_count = estimate_message_count(plain_content, self.image_path, mode, series)
         if mode in {"rich", "rich_series"} and re.search(
-            r"<(?:img|video)\\b", content, re.IGNORECASE
+            r"<(?:img|video)\b", content, re.IGNORECASE
         ):
             message_count = max(1, message_count)
         mode_label = next(
@@ -637,8 +638,8 @@ class PublisherWindow:
         )
         if not from_editor and not messagebox.askyesno(
             "Подтверждение публикации",
-            f"Опубликовать в канале «{profile.name}» ({profile.chat_id})?\\n"
-            f"Способ: {mode_label}.\\n"
+            f"Опубликовать в канале «{profile.name}» ({profile.chat_id})?\n"
+            f"Способ: {mode_label}.\n"
             f"Будет отправлено сообщений: {message_count}.",
             parent=self.root,
         ):

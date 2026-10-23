@@ -2,8 +2,11 @@
 
 from pathlib import Path
 
+import json
+
 import pytest
 
+import telegram_publisher.importer as importer
 from telegram_publisher.importer import (
     convert_html,
     convert_markdown,
@@ -60,3 +63,31 @@ def test_unsupported_file_type_is_rejected(tmp_path: Path) -> None:
 def test_non_public_or_invalid_urls_are_rejected(url: str) -> None:
     with pytest.raises(ValueError):
         _validate_public_url(url)
+
+
+
+def test_cp1251_text_file_import(tmp_path: Path) -> None:
+    path = tmp_path / "post.txt"
+    path.write_bytes("Привет, мир!".encode("cp1251"))
+    assert import_from_file(path) == "<p>Привет, мир!</p>"
+
+
+def test_wordpress_import_includes_title_and_removes_social_sharing(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_download(url: str) -> tuple[str, str]:
+        if "/wp-json/wp/v2/posts?" in url:
+            return (
+                json.dumps([{
+                    "title": {"rendered": "Заголовок публикации"},
+                    "content": {"rendered": "<p>Основной текст</p><div class='sharedaddy'><a href='#'>Поделиться</a></div>"},
+                }], ensure_ascii=False),
+                url,
+            )
+        return "[]", url
+
+    monkeypatch.setattr(importer, "_validate_public_url", lambda url: url)
+    monkeypatch.setattr(importer, "_download", fake_download)
+    result = importer._wordpress_content("https://example.org/post/")
+
+    assert "<h1>Заголовок публикации</h1>" in result
+    assert "<p>Основной текст</p>" in result
+    assert "Поделиться" not in result

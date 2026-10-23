@@ -183,10 +183,35 @@ document.getElementById('publish').onclick=async()=>{
   document.getElementById('status').textContent='Добавь текст, изображение или видео перед публикацией.';
   return;
  }
- await window.pywebview.api.finish(currentResult('publish'));
+ if(!confirm('Опубликовать пост в выбранном канале?'))return;
+ const publishButton=document.getElementById('publish');
+ publishButton.disabled=true;
+ document.getElementById('status').textContent='Подготовка публикации…';
+ try{await window.pywebview.api.publish(currentResult('publish'));}
+ catch(error){
+  publishButton.disabled=false;
+  document.getElementById('status').textContent='Не удалось начать публикацию: '+(error&&error.message?error.message:String(error));
+ }
 };
 document.getElementById('manage').onclick=async()=>{await window.pywebview.api.finish(currentResult('manage_profiles'))};
 document.getElementById('cancel').onclick=async()=>{await window.pywebview.api.finish(currentResult('cancel'))};
+let statusPolling=false;
+async function pollEditorStatus(){
+ if(statusPolling||!window.pywebview||!window.pywebview.api)return;
+ statusPolling=true;
+ try{
+  const update=await window.pywebview.api.get_status();
+  if(update){
+   if(update.clear)editor.innerHTML='';
+   if(update.message){
+    document.getElementById('status').textContent=update.message;
+    if(!update.message.startsWith('Отправка'))document.getElementById('publish').disabled=false;
+   }
+  }
+ }catch(error){}
+ finally{statusPolling=false;}
+}
+setInterval(pollEditorStatus,500);
 window.applyEditorConfig=applyConfig;
 </script>
 </body></html>"""
@@ -195,13 +220,29 @@ window.applyEditorConfig=applyConfig;
 class EditorApi:
     """Передать результат редактора вызывающему приложению."""
 
-    def __init__(self, output_path: Path, window: object) -> None:
+    def __init__(self, output_path: Path, status_path: Path, window: object) -> None:
         self.output_path = output_path
+        self.status_path = status_path
         self.window = window
 
     def finish(self, result: dict) -> None:
         self.output_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
         self.window.destroy()
+
+    def publish(self, result: dict) -> None:
+        """Передать публикацию основному процессу, не закрывая редактор."""
+        self.output_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+
+    def get_status(self) -> dict | None:
+        """Получить однократное уведомление от основного процесса."""
+        try:
+            if not self.status_path.is_file():
+                return None
+            payload = json.loads(self.status_path.read_text(encoding="utf-8"))
+            self.status_path.unlink(missing_ok=True)
+            return payload if isinstance(payload, dict) else None
+        except (OSError, json.JSONDecodeError):
+            return None
 
     def import_url(self, url: str) -> str:
         """Загрузить публикацию по URL и вернуть HTML для редактора."""
@@ -210,7 +251,7 @@ class EditorApi:
     def import_file(self) -> str | None:
         """Предложить выбрать локальный файл и преобразовать его в HTML."""
         paths = self.window.create_file_dialog(
-            webview.OPEN_DIALOG,
+            webview.FileDialog.OPEN,
             allow_multiple=False,
             file_types=(
                 "Поддерживаемые документы (*.txt;*.html;*.htm;*.md;*.markdown;*.docx;*.odt)",
@@ -238,8 +279,10 @@ def main() -> None:
         width=1200,
         height=850,
     )
-    api = EditorApi(output_path, window)
-    window.expose(api.finish, api.import_url, api.import_file)
+    status_path = output_path.with_name("editor-status.json")
+    status_path.unlink(missing_ok=True)
+    api = EditorApi(output_path, status_path, window)
+    window.expose(api.finish, api.publish, api.get_status, api.import_url, api.import_file)
 
     def initialize() -> None:
         window.evaluate_js(

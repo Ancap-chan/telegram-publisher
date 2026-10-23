@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import html
 import ipaddress
 import re
@@ -13,6 +14,7 @@ from urllib.request import Request, urlopen
 
 import markdown
 from bs4 import BeautifulSoup, Tag
+from charset_normalizer import from_bytes
 
 
 MAX_DOWNLOAD_BYTES = 12 * 1024 * 1024
@@ -77,6 +79,16 @@ def _download(url: str) -> tuple[str, str]:
 def _sanitize_html(content: str, base_url: str | None = None) -> str:
     """Оставить безопасное форматирование и превратить относительные ссылки в абсолютные."""
     soup = BeautifulSoup(content, "html.parser")
+    for selector in (
+        ".sharedaddy", ".sd-sharing", ".jp-share-print",
+        ".wp-block-jetpack-sharing-buttons", ".wp-block-social-links",
+        ".addtoany_share_save_container", ".heateor_sss_sharing_container",
+        ".heateor_sss_sharing", ".post-share", ".post-sharing",
+        ".social-share", ".social-sharing",
+        "[class*='share-buttons']", "[class*='sharing-buttons']",
+    ):
+        for node in list(soup.select(selector)):
+            node.decompose()
     for node in list(soup.find_all(DROP_TAGS)):
         node.decompose()
     for node in list(soup.find_all(True)):
@@ -149,9 +161,13 @@ def _wordpress_content(url: str) -> str | None:
         except (ValueError, TypeError):
             continue
         if isinstance(items, list) and items:
-            content = items[0].get("content", {}).get("rendered")
+            item = items[0]
+            content = item.get("content", {}).get("rendered")
             if content:
-                return _sanitize_html(content, url)
+                title_markup = item.get("title", {}).get("rendered", "")
+                title = BeautifulSoup(title_markup, "html.parser").get_text(" ", strip=True)
+                title_html = f"<h1>{html.escape(title)}</h1>" if title else ""
+                return title_html + _sanitize_html(content, url)
     return None
 
 
@@ -257,6 +273,57 @@ def _odt_html(path: Path) -> str:
     walk(document.text)
     return "".join(output)
 
+def _decode_text_file(path: Path) -> str:
+    """Определить распространённую кодировку текстового файла."""
+    data = path.read_bytes()
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+
+    if data.startswith(codecs.BOM_UTF32_LE) or data.startswith(codecs.BOM_UTF32_BE):
+        return data.decode("utf-32")
+    if data.startswith(codecs.BOM_UTF16_LE) or data.startswith(codecs.BOM_UTF16_BE):
+        return data.decode("utf-16")
+
+    detected_text = None
+    detected_coherence = 0.0
+    try:
+        detected = from_bytes(data).best()
+        if detected is not None:
+            detected_text = str(detected)
+            detected_coherence = float(detected.coherence or 0.0)
+    except (LookupError, ValueError):
+        pass
+
+    # Для коротких русскоязычных файлов детектор часто путает Windows-1251
+    # с похожими однобайтовыми кодировками.
+    try:
+        cyrillic = data.decode("cp1251")
+        cyrillic_score = sum("\u0400" <= char <= "\u04ff" for char in cyrillic) / max(len(cyrillic), 1)
+        detected_score = (
+            sum("\u0400" <= char <= "\u04ff" for char in detected_text) / max(len(detected_text), 1)
+            if detected_text
+            else 0.0
+        )
+        if cyrillic_score > 0.2 and cyrillic_score > detected_score + 0.03:
+            return cyrillic
+    except UnicodeDecodeError:
+        pass
+
+    if detected_text is not None and "\ufffd" not in detected_text and detected_coherence > 0:
+        return detected_text
+
+    for encoding in ("cp1250", "cp1252", "latin-1"):
+        try:
+            return data.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    if detected_text is not None:
+        return detected_text
+    raise ValueError("Не удалось определить кодировку текстового файла.")
+
+
 def import_from_file(path: Path) -> str:
     """Импортировать текстовый, HTML, Markdown, DOCX или ODT-файл."""
     if not path.is_file():
@@ -265,11 +332,11 @@ def import_from_file(path: Path) -> str:
         raise ValueError("Файл слишком велик для импорта (лимит 12 МБ).")
     suffix = path.suffix.lower()
     if suffix in {".txt", ".text"}:
-        return convert_text(path.read_text(encoding="utf-8-sig"))
+        return convert_text(_decode_text_file(path))
     if suffix in {".html", ".htm"}:
-        return convert_html(path.read_text(encoding="utf-8-sig"), path.resolve().as_uri())
+        return convert_html(_decode_text_file(path), path.resolve().as_uri())
     if suffix in {".md", ".markdown"}:
-        return convert_markdown(path.read_text(encoding="utf-8-sig"))
+        return convert_markdown(_decode_text_file(path))
     if suffix == ".docx":
         return _docx_html(path)
     if suffix == ".odt":

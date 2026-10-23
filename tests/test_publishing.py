@@ -122,7 +122,7 @@ def test_plain_media_payload_uses_invisible_link_to_public_image_url() -> None:
     assert payload is not None
     assert "media" not in payload
     assert '<strong>Текст</strong>' in payload["html"]
-    assert '<a href="https://example.org/image.jpg">\\u2063</a>' in payload["html"]
+    assert '<a href="https://example.org/image.jpg">\u2063</a>' in payload["html"]
     assert "<img" not in payload["html"]
 
 
@@ -141,7 +141,7 @@ def test_plain_media_payload_supports_video_url() -> None:
     payload = _plain_media_payload('<p>Текст</p><video controls src="https://example.org/movie.mp4"></video>')
     assert payload is not None
     assert "media" not in payload
-    assert '<a href="https://example.org/movie.mp4">\\u2063</a>' in payload["html"]
+    assert '<a href="https://example.org/movie.mp4">\u2063</a>' in payload["html"]
 
 
 def test_plain_media_payload_rejects_data_uri_without_public_url() -> None:
@@ -181,7 +181,7 @@ def test_plain_media_payload_keeps_image_outside_inline_formatting() -> None:
     )
     assert payload is not None
     assert "<strong>До </strong>" in payload["html"]
-    assert '<a href="https://example.org/image.jpg">\\u2063</a>' in payload["html"]
+    assert '<a href="https://example.org/image.jpg">\u2063</a>' in payload["html"]
     assert "<strong> после</strong>" in payload["html"]
     assert "<strong>До <a " not in payload["html"]
 
@@ -195,7 +195,7 @@ def test_plain_media_payload_splits_formatting_around_media_reference() -> None:
     assert payload is not None
     assert "<strong>Жирный</strong>" in payload["html"]
     assert "<em>курсив </em>" in payload["html"]
-    assert '<a href="https://example.org/image.jpg">\\u2063</a>' in payload["html"]
+    assert '<a href="https://example.org/image.jpg">\u2063</a>' in payload["html"]
     assert "<em> продолжение</em>" in payload["html"]
     assert "<em>курсив <a " not in payload["html"]
     assert "data-publication-media-ref" not in payload["html"]
@@ -235,5 +235,5 @@ def test_plain_publication_sends_media_via_send_message(monkeypatch) -> None:
     assert len(sent_messages) == 1
     assert sent_messages[0]["parse_mode"] == "HTML"
     assert '<strong>Текст</strong>' in sent_messages[0]["text"]
-    assert '<a href="https://example.org/image.jpg">\\u2063</a>' in sent_messages[0]["text"]
+    assert '<a href="https://example.org/image.jpg">\u2063</a>' in sent_messages[0]["text"]
     assert "tg://photo" not in sent_messages[0]["text"]

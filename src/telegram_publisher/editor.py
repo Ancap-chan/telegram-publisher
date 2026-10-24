@@ -21,7 +21,7 @@ EDITOR_HTML = r"""<!doctype html>
 :root{font:16px "Segoe UI",sans-serif;color:#222;background:#f4f5f7}
 *{box-sizing:border-box}
 body{margin:0;display:flex;flex-direction:column;height:100vh}
-header{padding:10px;background:#fff;border-bottom:1px solid #ddd;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+header{padding:10px;background:#fff;border-bottom:1px solid #ddd;display:flex;flex-direction:column;gap:8px;align-items:stretch}.toolbar-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;width:100%}.heading-tool{padding:4px 7px;font-size:12px;min-width:34px}.plain-unsupported{outline:2px dashed #c87919!important;background-color:#fff3d8!important}.plain-unsupported::after{content:"";display:inline-block}
 button,select{font:inherit;padding:7px 10px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer}
 button:hover{background:#eee}
 main{flex:1;overflow:auto;padding:24px}
@@ -42,10 +42,10 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 </head>
 <body>
 <header>
-<button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button>
-<button data-cmd="bold"><b>Жирный</b></button><button data-cmd="italic"><i>Курсив</i></button><button data-cmd="underline"><u>Подчёркнутый</u></button><button data-cmd="strikeThrough"><s>Зачёркнутый</s></button>
-<button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button data-cmd="formatBlock" data-value="h2" data-rich-only>Заголовок</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
-<button id="link">Ссылка</button><button id="image">Изображение по URL</button><button id="video">Видео по URL</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span>
+<div class="toolbar-row file-tools"><button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button></div>
+<div class="toolbar-row edit-tools"><button data-cmd="bold"><b>Жирный</b></button><button data-cmd="italic"><i>Курсив</i></button><button data-cmd="underline"><u>Подчёркнутый</u></button><button data-cmd="strikeThrough"><s>Зачёркнутый</s></button>
+<button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button class="heading-tool" data-cmd="formatBlock" data-value="h1" data-rich-only>H1</button><button class="heading-tool" data-cmd="formatBlock" data-value="h2" data-rich-only>H2</button><button class="heading-tool" data-cmd="formatBlock" data-value="h3" data-rich-only>H3</button><button class="heading-tool" data-cmd="formatBlock" data-value="h4" data-rich-only>H4</button><button class="heading-tool" data-cmd="formatBlock" data-value="h5" data-rich-only>H5</button><button class="heading-tool" data-cmd="formatBlock" data-value="h6" data-rich-only>H6</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
+<button id="link">Ссылка</button><button id="media">Медиа по URL</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span></div>
 </header>
 <div id="series-status" class="series-status" aria-live="polite" hidden></div><main><div id="editor" contenteditable="true" spellcheck="true"></div></main>
 <div id="context-menu" class="context-menu" hidden>
@@ -352,34 +352,38 @@ function currentPartMediaCount(){
  }
  return partMediaCount(rawParts[selectedIndex]||[]);
 }
-function insertMediaFromUrl(kind){
+function insertMediaFromUrl(){
  if(!isRichMode()&&currentPartMediaCount()>=1){document.getElementById('status').textContent='В одном обычном сообщении допускается только одно изображение или видео.';return}
- const label=kind==='image'?'Публичный URL изображения':'Публичный URL видео';
- const url=askUrl(label);
+ const url=askUrl('Публичный URL изображения или видео');
  if(!url)return;
  let parsed;
  try{parsed=new URL(url)}catch(error){document.getElementById('status').textContent='Не удалось разобрать адрес.';return}
  const host=parsed.hostname.toLowerCase().replace(/^www\./,'');
- if(kind==='video'&&(host==='youtube.com'||host.endsWith('.youtube.com')||host==='youtu.be'||host==='youtube-nocookie.com'||host.endsWith('.youtube-nocookie.com'))){
+ const isVideoSite=host==='youtube.com'||host.endsWith('.youtube.com')||host==='youtu.be'||host==='youtube-nocookie.com'||host.endsWith('.youtube-nocookie.com');
+ if(isVideoSite){
   const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
   editor.focus();
   document.execCommand('insertHTML',false,'<p><a href="'+safe+'">'+safe+'</a></p>');
-  document.getElementById('status').textContent='Это ссылка на YouTube, а не прямой видеофайл. Добавлена ссылка на ролик; Telegram может показать предпросмотр.';
+  document.getElementById('status').textContent='Добавлена ссылка на видеоролик. Для предпросмотра Telegram использует URL ролика.';
   updateSeriesStatus();
   return;
  }
- if(kind==='video'&&!/\.(mp4|m4v|mov|webm|mkv)(?:$|[?#])/i.test(parsed.pathname+parsed.search+parsed.hash)){
-  document.getElementById('status').textContent='Для вставки видео нужен прямой URL видеофайла (например, MP4 или WebM). Для YouTube добавляется ссылка на ролик.';
+ const path=parsed.pathname+parsed.search+parsed.hash;
+ const videoByExtension=/\.(mp4|m4v|mov|webm|mkv)(?:$|[?#])/i.test(path);
+ const imageByExtension=/\.(png|jpe?g|gif|webp|avif|bmp)(?:$|[?#])/i.test(path);
+ const kind=videoByExtension?'video':imageByExtension?'image':(confirm('Это прямой URL видеофайла?\nНажми «ОК» для видео или «Отмена» для изображения.')?'video':'image');
+ if(kind==='video'&&!videoByExtension){
+  document.getElementById('status').textContent='Для видео нужен прямой URL видеофайла, например MP4 или WebM.';
   return;
  }
  editor.focus();
  const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
  const markup=kind==='image'?'<p><img src="'+safe+'" alt=""></p>':'<p><video controls src="'+safe+'"></video></p>';
  document.execCommand('insertHTML',false,markup);
+ updatePlainCompatibility();
  updateSeriesStatus();
 }
-document.getElementById('image').onclick=()=>insertMediaFromUrl('image');
-document.getElementById('video').onclick=()=>insertMediaFromUrl('video');
+document.getElementById('media').onclick=insertMediaFromUrl;
 document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,Number(prompt('Количество строк','2'))||2));const cols=Math.max(1,Math.min(10,Number(prompt('Количество столбцов','2'))||2));let table='<table><tbody>';for(let r=0;r<rows;r++){table+='<tr>';for(let c=0;c<cols;c++)table+='<td><br></td>';table+='</tr>'}table+='</tbody></table><p><br></p>';editor.focus();document.execCommand('insertHTML',false,table)};
 const seriesStatus=document.getElementById('series-status');
 function isSeriesMode(){return modeSelect.value.endsWith('_series')||seriesCheckbox.checked}
@@ -447,15 +451,80 @@ function updateSeriesStatus(){
  }).join('\n');
  return !overflow&&!tooMuchMedia;
 }
+const PLAIN_SUBSTITUTIONS=[
+ {selector:'h1,h2,h3,h4,h5,h6',message:'Уровень заголовка будет заменён жирным текстом.'},
+ {selector:'table',message:'Таблица будет преобразована в текстовые строки.'},
+ {selector:'img,video',message:'Медиа будет заменено скрытой ссылкой для предпросмотра.'},
+ {selector:'mark,sub,sup,small,big,font,span[style]',message:'Это оформление не поддерживается в обычном режиме; текст сохранится.'}
+];
+function updatePlainCompatibility(){
+ editor.querySelectorAll('.plain-unsupported').forEach(node=>{
+  node.classList.remove('plain-unsupported');
+  if(node.dataset.plainOriginalTitle!==undefined){
+   if(node.dataset.plainOriginalTitle)node.title=node.dataset.plainOriginalTitle;
+   else node.removeAttribute('title');
+   delete node.dataset.plainOriginalTitle;
+  }
+ });
+ if(isRichMode())return;
+ for(const rule of PLAIN_SUBSTITUTIONS){
+  editor.querySelectorAll(rule.selector).forEach(node=>{
+   node.classList.add('plain-unsupported');
+   node.dataset.plainOriginalTitle=node.getAttribute('title')||'';
+   node.title=rule.message;
+  });
+ }
+}
 function updateModeUI(){
  const rich=isRichMode();
  document.querySelectorAll('[data-rich-only]').forEach(button=>button.hidden=!rich);
  document.getElementById('series-tools').classList.toggle('visible',isSeriesMode());
  seriesCheckbox.checked=modeSelect.value.endsWith('_series');
+ updatePlainCompatibility();
  updateSeriesStatus();
+}
+function preferredSplitBoundary(text,start,end,limit){
+ const segment=text.slice(start,end);
+ const sentencePattern=/[.!?…]+(?:["'»”’)}\]]*)\s+/g;
+ let match,lastSentenceBoundary=0;
+ while((match=sentencePattern.exec(segment))!==null){
+  const boundary=start+match.index+match[0].trimEnd().length;
+  if(boundary>start+Math.floor(limit*0.6))lastSentenceBoundary=boundary;
+ }
+ if(lastSentenceBoundary>start)return lastSentenceBoundary;
+ const newline=text.lastIndexOf('\n',end);
+ const space=text.lastIndexOf(' ',end);
+ const boundary=Math.max(newline,space);
+ return boundary>start+Math.floor(limit*0.6)?boundary:end;
+}
+function splitOversizedList(node,limit){
+ const items=Array.from(node.children).filter(item=>item.tagName==='LI');
+ if(!items.length)return [node];
+ const chunks=[];
+ let current=node.cloneNode(false),used=0;
+ const flush=()=>{
+  if(current.children.length)chunks.push(current);
+  current=node.cloneNode(false);
+  used=0;
+ };
+ for(const item of items){
+  const itemLength=(item.innerText||item.textContent||'').trim().length;
+  const pieces=itemLength>limit?splitOversizedNode(item,limit):[item];
+  for(const piece of pieces){
+   const length=(piece.innerText||piece.textContent||'').trim().length;
+   if(current.children.length&&used+length>limit)flush();
+   current.appendChild(piece.cloneNode(true));
+   used+=length;
+  }
+ }
+ flush();
+ return chunks.length?chunks:[node];
 }
 function splitOversizedNode(node,limit){
  const originalText=node.textContent||'';
+ if(node.nodeType===Node.ELEMENT_NODE&&['UL','OL'].includes(node.tagName)&&(node.innerText||originalText).trim().length>limit){
+  return splitOversizedList(node,limit);
+ }
  if(originalText.length<=limit)return [node];
  if(node.nodeType===Node.TEXT_NODE){
   const chunks=[];
@@ -463,8 +532,8 @@ function splitOversizedNode(node,limit){
   while(start<originalText.length){
    let end=Math.min(start+limit,originalText.length);
    if(end<originalText.length){
-    const boundary=Math.max(originalText.lastIndexOf('\n',end),originalText.lastIndexOf(' ',end));
-    if(boundary>start+Math.floor(limit*0.6))end=boundary;
+    const boundary=preferredSplitBoundary(originalText,start,end,limit);
+    if(boundary>start&&boundary<end)end=boundary;
    }
    if(end<=start)end=Math.min(start+limit,originalText.length);
    const value=originalText.slice(start,end).trim();
@@ -487,8 +556,8 @@ function splitOversizedNode(node,limit){
  while(start<combined.length){
   let end=Math.min(start+limit,combined.length);
   if(end<combined.length){
-   const boundary=Math.max(combined.lastIndexOf('\n',end),combined.lastIndexOf(' ',end));
-   if(boundary>start+Math.floor(limit*0.6))end=boundary;
+   const boundary=preferredSplitBoundary(combined,start,end,limit);
+   if(boundary>start&&boundary<end)end=boundary;
   }
   if(end<=start)end=Math.min(start+limit,combined.length);
   let cursor=0,first=null,last=null,firstOffset=0,lastOffset=0;

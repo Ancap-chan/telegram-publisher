@@ -363,8 +363,10 @@ function insertMediaFromUrl(){
  if(isVideoSite){
   const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
   editor.focus();
-  document.execCommand('insertHTML',false,'<p><a href="'+safe+'">'+safe+'</a></p>');
-  document.getElementById('status').textContent='Добавлена ссылка на видеоролик. Для предпросмотра Telegram использует URL ролика.';
+  document.execCommand('insertHTML',false,'<p><a href="'+safe+'" data-publication-media-preview="video">'+safe+'</a></p>');
+  document.getElementById('status').textContent=isRichMode()
+   ?'Это страница видеосайта, а не прямой видеофайл. Для встроенного видео в рич-сообщении укажи прямой URL файла; в обычном режиме URL используется для предпросмотра.'
+   :'При публикации ссылка на видеосайт будет скрыта, а её URL передан Telegram для предпросмотра.';
   updateSeriesStatus();
   return;
  }

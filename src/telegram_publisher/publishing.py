@@ -34,7 +34,7 @@ PUBLICATION_MODES = {
 
 
 def split_text(text: str, limit: int = TEXT_LIMIT) -> list[str]:
-    """Разбить текст на части не длиннее лимита, по возможности по абзацам и словам."""
+    """Разбить текст по абзацам, затем по предложениям и словам, не превышая лимит."""
     text = text.strip()
     if not text:
         return []
@@ -48,6 +48,17 @@ def split_text(text: str, limit: int = TEXT_LIMIT) -> list[str]:
         boundary = remaining.rfind("\n\n", 0, limit + 1)
         if boundary <= 0:
             boundary = remaining.rfind("\n", 0, limit + 1)
+        if boundary <= 0:
+            candidate = remaining[: limit + 1]
+            sentence_matches = list(
+                re.finditer(r"[.!?…]+(?:[\\"'»”’)}\\]]*)\\s+", candidate)
+            )
+            if sentence_matches:
+                sentence_boundary = sentence_matches[-1].start()
+                if sentence_boundary > int(limit * 0.6):
+                    boundary = sentence_boundary + len(
+                        sentence_matches[-1].group(0).rstrip()
+                    )
         if boundary <= 0:
             boundary = remaining.rfind(" ", 0, limit + 1)
         if boundary <= 0:

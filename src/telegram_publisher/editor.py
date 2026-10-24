@@ -508,9 +508,11 @@ function splitOversizedList(node,limit){
   const pieces=itemLength>limit?splitOversizedNode(item,limit):[item];
   for(const piece of pieces){
    const length=(piece.innerText||piece.textContent||'').trim().length;
-   if(current.children.length&&used+length>limit)flush();
+   const separator=current.children.length?1:0;
+   if(current.children.length&&used+separator+length>limit)flush();
+   const nextSeparator=current.children.length?1:0;
    current.appendChild(piece.cloneNode(true));
-   used+=length;
+   used+=nextSeparator+length;
   }
  }
  flush();

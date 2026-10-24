@@ -81,7 +81,7 @@ def test_rich_payload_converts_public_media_urls() -> None:
         "media": "https://example.org/movie.mp4",
     }
     assert '<img src="tg://photo?id=publication_media_1" alt="Изображение">' in payload["html"]
-    assert '<a href="tg://video?id=publication_media_2">\\u200b\\u200b\\u200b</a>' in payload["html"]
+    assert '<a href="tg://video?id=publication_media_2">\u200b\u200b\u200b</a>' in payload["html"]
     assert "<video" not in payload["html"]
 
 
@@ -337,7 +337,7 @@ def test_plain_media_payload_converts_video_site_link_to_hidden_preview_link() -
     assert payload is not None
     assert "https://youtu.be/example</a>" not in payload["html"]
     assert payload["html"].endswith(
-        '<a href="https://youtu.be/example">\\u200b\\u200b\\u200b</a>'
+        '<a href="https://youtu.be/example">\u200b\u200b\u200b</a>'
     )
     assert _plain_send_options(payload["html"])["link_preview_options"].url == "https://youtu.be/example"
 

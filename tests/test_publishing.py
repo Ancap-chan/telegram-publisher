@@ -274,6 +274,10 @@ def test_plain_prepared_publication_sends_reviewed_text_unchanged(monkeypatch) -
             "chat_id": "@test-channel",
             "text": reviewed_text,
             "parse_mode": "HTML",
+            "read_timeout": 60,
+            "write_timeout": 60,
+            "connect_timeout": 15,
+            "pool_timeout": 15,
             "link_preview_options": __import__("telegram").LinkPreviewOptions(url="https://example.org/image.jpg"),
         }
     ]

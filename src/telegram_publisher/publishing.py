@@ -47,7 +47,13 @@ def split_text(text: str, limit: int = TEXT_LIMIT) -> list[str]:
     while len(remaining) > limit:
         boundary = remaining.rfind("\n\n", 0, limit + 1)
         if boundary <= 0:
-            boundary = remaining.rfind("\n", 0, limit + 1)
+            candidate = remaining[: limit + 1]
+            line_boundary = remaining.rfind("\n", 0, limit + 1)
+            contains_list_items = bool(
+                re.search(r"(?:^|\n)[ \t]*(?:[•*-]|\d+[.)])[ \t]+", candidate)
+            )
+            if line_boundary > 0 and contains_list_items:
+                boundary = line_boundary
         if boundary <= 0:
             candidate = remaining[: limit + 1]
             sentence_matches = list(
@@ -59,6 +65,8 @@ def split_text(text: str, limit: int = TEXT_LIMIT) -> list[str]:
                     boundary = sentence_boundary + len(
                         sentence_matches[-1].group(0).rstrip()
                     )
+        if boundary <= 0:
+            boundary = remaining.rfind("\n", 0, limit + 1)
         if boundary <= 0:
             boundary = remaining.rfind(" ", 0, limit + 1)
         if boundary <= 0:

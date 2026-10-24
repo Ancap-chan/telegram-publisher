@@ -23,6 +23,12 @@ TEXT_LIMIT = 4096
 CAPTION_LIMIT = 1024
 RICH_TEXT_LIMIT = 32768
 
+# Предпросмотр ссылок может обрабатываться Telegram дольше стандартного тайм-аута.
+SEND_READ_TIMEOUT = 60
+SEND_WRITE_TIMEOUT = 60
+SEND_CONNECT_TIMEOUT = 15
+SEND_POOL_TIMEOUT = 15
+
 PUBLICATION_MODES = {
     "plain": "Обычный текст",
     "caption": "Подпись к изображению",
@@ -394,6 +400,32 @@ def _plain_send_options(message_html: str) -> dict:
             return {"link_preview_options": LinkPreviewOptions(url=source)}
     return {}
 
+
+async def _send_plain_messages_sequentially(bot, chat_id: str, messages: list[str]) -> int:
+    """Отправить серию по одному сообщению, ожидая подтверждение каждого запроса."""
+    for index, message_html in enumerate(messages, start=1):
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=message_html,
+                parse_mode="HTML",
+                read_timeout=SEND_READ_TIMEOUT,
+                write_timeout=SEND_WRITE_TIMEOUT,
+                connect_timeout=SEND_CONNECT_TIMEOUT,
+                pool_timeout=SEND_POOL_TIMEOUT,
+                **_plain_send_options(message_html),
+            )
+        except Exception as error:
+            raise RuntimeError(
+                f"Серия остановлена на сообщении {index} из {len(messages)}. "
+                f"Подтверждённо отправлено предыдущих сообщений: {index - 1}. "
+                "Результат текущего сообщения не подтверждён; при сетевом тайм-ауте "
+                "оно могло дойти до Telegram. Проверь канал перед повторным запуском. "
+                f"Причина: {error}"
+            ) from error
+    return len(messages)
+
+
 async def _send_rich(
     token: str,
     chat_id: str,
@@ -515,14 +547,7 @@ async def send_publication(
             raise ValueError("Обычное сообщение ограничено 4096 символами. Включи серию публикаций.")
         prepared_messages = prepare_plain_messages(text, parts or None)
         async with Bot(token=token) as bot:
-            for message_html in prepared_messages:
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=message_html,
-                    parse_mode="HTML",
-                    **_plain_send_options(message_html),
-                )
-        return len(prepared_messages)
+            return await _send_plain_messages_sequentially(bot, chat_id, prepared_messages)
 
     if mode == "plain_prepared":
         prepared_messages = [part for part in (parts or [text]) if part.strip()]
@@ -532,14 +557,7 @@ async def send_publication(
             if len(_plain_text_from_html(message_html)) > TEXT_LIMIT:
                 raise ValueError(f"Сообщение {index} превышает лимит обычного сообщения Telegram ({TEXT_LIMIT} символов).")
         async with Bot(token=token) as bot:
-            for message_html in prepared_messages:
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=message_html,
-                    parse_mode="HTML",
-                    **_plain_send_options(message_html),
-                )
-        return len(prepared_messages)
+            return await _send_plain_messages_sequentially(bot, chat_id, prepared_messages)
 
     if mode == "media_text":
         if not image_path:

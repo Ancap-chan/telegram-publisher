@@ -274,6 +274,10 @@ def test_plain_prepared_publication_sends_reviewed_text_unchanged(monkeypatch) -
             "chat_id": "@test-channel",
             "text": reviewed_text,
             "parse_mode": "HTML",
+            "read_timeout": 60,
+            "write_timeout": 60,
+            "connect_timeout": 15,
+            "pool_timeout": 15,
             "link_preview_options": __import__("telegram").LinkPreviewOptions(url="https://example.org/image.jpg"),
         }
     ]
@@ -341,3 +345,64 @@ def test_plain_media_payload_converts_video_site_link_to_hidden_preview_link() -
     )
     assert _plain_send_options(payload["html"])["link_preview_options"].url == "https://youtu.be/example"
 
+
+
+
+def test_series_sends_messages_sequentially_with_extended_timeouts() -> None:
+    import asyncio
+    from telegram_publisher.publishing import (
+        SEND_CONNECT_TIMEOUT,
+        SEND_POOL_TIMEOUT,
+        SEND_READ_TIMEOUT,
+        SEND_WRITE_TIMEOUT,
+        _send_plain_messages_sequentially,
+    )
+
+    calls = []
+
+    class FakeBot:
+        async def send_message(self, **kwargs):
+            calls.append(kwargs)
+
+    sent = asyncio.run(
+        _send_plain_messages_sequentially(
+            FakeBot(),
+            "@test-channel",
+            ["Первый пост", "Второй пост", "Третий пост"],
+        )
+    )
+
+    assert sent == 3
+    assert [call["text"] for call in calls] == [
+        "Первый пост",
+        "Второй пост",
+        "Третий пост",
+    ]
+    assert all(call["read_timeout"] == SEND_READ_TIMEOUT == 60 for call in calls)
+    assert all(call["write_timeout"] == SEND_WRITE_TIMEOUT == 60 for call in calls)
+    assert all(call["connect_timeout"] == SEND_CONNECT_TIMEOUT == 15 for call in calls)
+    assert all(call["pool_timeout"] == SEND_POOL_TIMEOUT == 15 for call in calls)
+
+
+def test_series_stops_after_unconfirmed_message_and_reports_partial_progress() -> None:
+    import asyncio
+    from telegram_publisher.publishing import _send_plain_messages_sequentially
+
+    calls = []
+
+    class FakeBot:
+        async def send_message(self, **kwargs):
+            calls.append(kwargs["text"])
+            if kwargs["text"] == "Второй пост":
+                raise TimeoutError("ожидание ответа истекло")
+
+    with pytest.raises(RuntimeError, match="Подтверждённо отправлено предыдущих сообщений: 1"):
+        asyncio.run(
+            _send_plain_messages_sequentially(
+                FakeBot(),
+                "@test-channel",
+                ["Первый пост", "Второй пост", "Третий пост"],
+            )
+        )
+
+    assert calls == ["Первый пост", "Второй пост"]

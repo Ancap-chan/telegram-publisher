@@ -176,7 +176,24 @@ def _sanitize_plain_html(content: str, *, preserve_media: bool = False) -> str:
     soup = BeautifulSoup(content, "html.parser")
     for comment in soup.find_all(string=lambda value: isinstance(value, Comment)):
         comment.extract()
-    blocked_nodes = ["script", "style", "table", "iframe"]
+    # Таблицы переводятся в обычные текстовые строки вместо полной потери данных.
+    for table in soup.find_all("table"):
+        rows = soup.new_tag("div")
+        for row in table.find_all("tr"):
+            cells = [
+                " ".join(cell.stripped_strings)
+                for cell in row.find_all(["th", "td"], recursive=False)
+            ]
+            if cells:
+                paragraph = soup.new_tag("p")
+                paragraph.string = " | ".join(cells)
+                rows.append(paragraph)
+        if rows.contents:
+            table.replace_with(rows)
+        else:
+            table.decompose()
+
+    blocked_nodes = ["script", "style", "iframe"]
     if not preserve_media:
         blocked_nodes.extend(["img", "video"])
     for node in soup.find_all(blocked_nodes):

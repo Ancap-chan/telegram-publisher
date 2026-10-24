@@ -316,7 +316,7 @@ def _rich_payload(
             return f'<a href="tg://{target}?id={media_id}">\u2063</a>'
         if media_type == "video":
             # В рич-сообщении видео должно ссылаться на зарегистрированное медиа через tg://.
-            return f'<a href="tg://video?id={media_id}">\\u200b\\u200b\\u200b</a>'
+            return f'<a href="tg://video?id={media_id}">\u200b\u200b\u200b</a>'
         return f'<img src="tg://photo?id={media_id}" alt="Изображение">'
 
     if rich_formatting:

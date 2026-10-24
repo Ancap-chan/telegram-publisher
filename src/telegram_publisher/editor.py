@@ -489,13 +489,13 @@ function preferredSplitBoundary(text,start,end,limit){
  let match,lastSentenceBoundary=0;
  while((match=sentencePattern.exec(segment))!==null){
   const boundary=start+match.index+match[0].trimEnd().length;
-  if(boundary>start+Math.floor(limit*0.6))lastSentenceBoundary=boundary;
+  if(boundary>start+Math.floor(limit*0.5))lastSentenceBoundary=boundary;
  }
  if(lastSentenceBoundary>start)return lastSentenceBoundary;
  const newline=text.lastIndexOf('\n',end);
  const space=text.lastIndexOf(' ',end);
  const boundary=Math.max(newline,space);
- return boundary>start+Math.floor(limit*0.6)?boundary:end;
+ return boundary>start+Math.floor(limit*0.5)?boundary:end;
 }
 function splitOversizedList(node,limit){
  const items=Array.from(node.children).filter(item=>item.tagName==='LI');

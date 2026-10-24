@@ -598,7 +598,9 @@ async def send_publication(
             if len(_plain_text_from_html(message_html)) > TEXT_LIMIT:
                 raise ValueError(f"Сообщение {index} превышает лимит обычного сообщения Telegram ({TEXT_LIMIT} символов).")
         async with Bot(token=token) as bot:
-            return await _send_plain_messages_sequentially(bot, chat_id, prepared_messages)
+            return await _send_plain_messages_sequentially(
+                bot, chat_id, prepared_messages, initial_delay=initial_delay
+            )
 
     if mode == "media_text":
         if not image_path:

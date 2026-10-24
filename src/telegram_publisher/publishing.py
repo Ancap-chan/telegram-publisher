@@ -55,7 +55,7 @@ def split_text(text: str, limit: int = TEXT_LIMIT) -> list[str]:
             )
             if sentence_matches:
                 sentence_boundary = sentence_matches[-1].start()
-                if sentence_boundary > int(limit * 0.6):
+                if sentence_boundary >= int(limit * 0.5):
                     boundary = sentence_boundary + len(
                         sentence_matches[-1].group(0).rstrip()
                     )

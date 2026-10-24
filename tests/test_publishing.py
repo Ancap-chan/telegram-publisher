@@ -302,6 +302,15 @@ def test_split_prefers_sentence_boundaries_for_oversized_paragraph() -> None:
     assert all(len(part) <= 32 for part in parts)
 
 
+def test_split_long_list_text_at_item_boundaries() -> None:
+    text = "• Первый пункт\n• Второй пункт\n• Третий пункт"
+    assert split_text(text, limit=20) == [
+        "• Первый пункт",
+        "• Второй пункт",
+        "• Третий пункт",
+    ]
+
+
 def test_plain_html_converts_tables_to_text_rows() -> None:
     from telegram_publisher.publishing import _sanitize_plain_html
 

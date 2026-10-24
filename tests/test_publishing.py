@@ -256,7 +256,7 @@ def test_plain_prepared_publication_sends_reviewed_text_unchanged(monkeypatch) -
             sent_messages.append(kwargs)
 
     monkeypatch.setattr(publishing, "Bot", FakeBot)
-    reviewed_text = '<strong>Финальный текст</strong><a href="https://example.org/image.jpg">⁣</a>'
+    reviewed_text = '<strong>Финальный текст</strong><a href="https://example.org/image.jpg">\u200b\u200b\u200b</a>'
 
     sent = asyncio.run(
         publishing.send_publication(
@@ -312,3 +312,8 @@ def test_plain_html_converts_tables_to_text_rows() -> None:
     assert "Имя | Роль" in result
     assert "Анна | Автор" in result
     assert "<table" not in result
+
+def test_plain_text_length_counts_table_cells() -> None:
+    from telegram_publisher.publishing import _plain_text_from_html
+
+    assert _plain_text_from_html("<table><tr><td>Имя</td><td>Роль</td></tr></table>") == "ИмяРоль"

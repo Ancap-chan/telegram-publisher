@@ -51,7 +51,7 @@ def split_text(text: str, limit: int = TEXT_LIMIT) -> list[str]:
         if boundary <= 0:
             candidate = remaining[: limit + 1]
             sentence_matches = list(
-                re.finditer(r"[.!?…]+(?:[\\"'»”’)}\\]]*)\\s+", candidate)
+                re.finditer(r"""[.!?…]+(?:["'»”’)}\]]*)\s+""", candidate)
             )
             if sentence_matches:
                 sentence_boundary = sentence_matches[-1].start()

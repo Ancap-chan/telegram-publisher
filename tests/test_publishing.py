@@ -81,8 +81,8 @@ def test_rich_payload_converts_public_media_urls() -> None:
         "media": "https://example.org/movie.mp4",
     }
     assert '<img src="tg://photo?id=publication_media_1" alt="Изображение">' in payload["html"]
-    assert '<video controls src="tg://video?id=publication_media_2"></video>' in payload["html"]
-    assert payload["html"].count("</video>") == 1
+    assert '<a href="tg://video?id=publication_media_2">\u200b\u200b\u200b</a>' in payload["html"]
+    assert "<video" not in payload["html"]
 
 
 def test_plain_html_preserves_telegram_supported_formatting_and_removes_media() -> None:
@@ -326,3 +326,18 @@ def test_plain_text_length_counts_table_cells() -> None:
     from telegram_publisher.publishing import _plain_text_from_html
 
     assert _plain_text_from_html("<table><tr><td>Имя</td><td>Роль</td></tr></table>") == "ИмяРоль"
+
+def test_plain_media_payload_converts_video_site_link_to_hidden_preview_link() -> None:
+    from telegram_publisher.publishing import _plain_media_payload, _plain_send_options
+
+    payload = _plain_media_payload(
+        '<p>Текст публикации</p><p><a href="https://youtu.be/example" '
+        'data-publication-media-preview="video">https://youtu.be/example</a></p>'
+    )
+    assert payload is not None
+    assert "https://youtu.be/example</a>" not in payload["html"]
+    assert payload["html"].endswith(
+        '<a href="https://youtu.be/example">\u200b\u200b\u200b</a>'
+    )
+    assert _plain_send_options(payload["html"])["link_preview_options"].url == "https://youtu.be/example"
+

@@ -269,6 +269,13 @@ def _rich_payload(
     body = text if rich_formatting else html.escape(text, quote=False)
     if rich_formatting:
         body = re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL)
+        # Вспомогательная метка нужна редактору для обычного предпросмотра, но не Telegram.
+        body = re.sub(
+            r'\s+data-publication-media-preview=(["\'])video\1',
+            "",
+            body,
+            flags=re.IGNORECASE,
+        )
     media: list[dict] = []
     upload_files: list[dict] = []
 
@@ -307,10 +314,10 @@ def _rich_payload(
         if invisible_media_link:
             target = "video" if media_type == "video" else "photo"
             return f'<a href="tg://{target}?id={media_id}">\u2063</a>'
-        label = "Видео" if media_type == "video" else "Изображение"
-        if media_type == "photo":
-            return f'<img src="tg://photo?id={media_id}" alt="{label}">'
-        return f'<video controls src="tg://video?id={media_id}"></video>'
+        if media_type == "video":
+            # В рич-сообщении видео должно ссылаться на зарегистрированное медиа через tg://.
+            return f'<a href="tg://video?id={media_id}">\u200b\u200b\u200b</a>'
+        return f'<img src="tg://photo?id={media_id}" alt="Изображение">'
 
     if rich_formatting:
         body = re.sub(
@@ -343,27 +350,32 @@ def _plain_media_payload(content: str, image_path: str | None = None) -> dict | 
     """Подготовить обычное сообщение с невидимой ссылкой на публичное медиа в конце."""
     soup = BeautifulSoup(content, "html.parser")
     media_nodes = list(soup.find_all(["img", "video"]))
-    if len(media_nodes) > 1:
+    preview_anchors = list(soup.find_all("a", attrs={"data-publication-media-preview": "video"}))
+    if len(media_nodes) + len(preview_anchors) > 1:
         raise ValueError("В одном обычном сообщении допускается только одно изображение или видео.")
-    if media_nodes and image_path:
+    if (media_nodes or preview_anchors) and image_path:
         raise ValueError("В одном обычном сообщении допускается только одно медиа. Удали встроенное изображение или отдельный файл.")
-    if not media_nodes and not image_path:
+    if not media_nodes and not preview_anchors and not image_path:
         return None
-    if image_path and not media_nodes:
+    if image_path and not media_nodes and not preview_anchors:
         raise ValueError(
             "Для обычного сообщения изображение или видео должно иметь публичный URL. "
             "Локальный файл можно отправить в режиме «Подпись к изображению» или «Рич-текст»."
         )
-    source = str(media_nodes[0].get("src", "")).strip()
+    if preview_anchors:
+        source = str(preview_anchors[0].get("href", "")).strip()
+        preview_anchors[0].decompose()
+    else:
+        source = str(media_nodes[0].get("src", "")).strip()
     if not source.lower().startswith(("https://", "http://")):
         raise ValueError(
             "Для обычного сообщения ссылка на медиа должна вести на публичный URL. "
-            "Изображение из буфера обмена без публичного URL нельзя встроить этим способом."
+            "Медиа без публичного HTTP(S)-адреса нельзя использовать для предпросмотра."
         )
     safe_html = _sanitize_plain_html(soup.decode_contents())
     result = BeautifulSoup(safe_html, "html.parser")
     media_anchor = result.new_tag("a", href=source)
-    # Hangul Filler (U+3164) оказался надёжнее для создания превью Telegram.
+    # Три символа нулевой ширины U+200B нужны для надёжного предпросмотра Telegram.
     media_anchor.string = "\u200B\u200B\u200B"
     if result.contents:
         result.append(result.new_string("\n\n"))

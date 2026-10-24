@@ -7,6 +7,7 @@ import base64
 from copy import copy
 import html
 import json
+import math
 import mimetypes
 import re
 import uuid
@@ -17,6 +18,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from telegram import Bot, LinkPreviewOptions
+from telegram.error import RetryAfter
 
 
 TEXT_LIMIT = 4096
@@ -28,6 +30,23 @@ SEND_READ_TIMEOUT = 60
 SEND_WRITE_TIMEOUT = 60
 SEND_CONNECT_TIMEOUT = 15
 SEND_POOL_TIMEOUT = 15
+# Для каналов используем консервативный предел групп: не более 20 сообщений в минуту.
+SERIES_SEND_INTERVAL = 3.2
+
+
+class PartialPublicationError(RuntimeError):
+    """Серия остановлена по подтверждённому отказу Telegram; остаток не отправлен."""
+
+    def __init__(self, sent_count: int, pending_messages: list[str], retry_after: float) -> None:
+        self.sent_count = sent_count
+        self.pending_messages = pending_messages
+        self.retry_after = retry_after
+        super().__init__(
+            f"Telegram ограничил частоту публикаций. Подтверждённо отправлено: {sent_count}; "
+            f"осталось сообщений: {len(pending_messages)}. Повторить можно через "
+            f"{math.ceil(retry_after)} сек."
+        )
+
 
 PUBLICATION_MODES = {
     "plain": "Обычный текст",
@@ -401,9 +420,19 @@ def _plain_send_options(message_html: str) -> dict:
     return {}
 
 
-async def _send_plain_messages_sequentially(bot, chat_id: str, messages: list[str]) -> int:
-    """Отправить серию по одному сообщению, ожидая подтверждение каждого запроса."""
+async def _send_plain_messages_sequentially(
+    bot,
+    chat_id: str,
+    messages: list[str],
+    *,
+    initial_delay: float = 0,
+) -> int:
+    """Отправить сообщения последовательно с паузой и подтверждением каждого запроса."""
+    if initial_delay > 0:
+        await asyncio.sleep(initial_delay)
     for index, message_html in enumerate(messages, start=1):
+        if index > 1:
+            await asyncio.sleep(SERIES_SEND_INTERVAL)
         try:
             await bot.send_message(
                 chat_id=chat_id,
@@ -415,6 +444,15 @@ async def _send_plain_messages_sequentially(bot, chat_id: str, messages: list[st
                 pool_timeout=SEND_POOL_TIMEOUT,
                 **_plain_send_options(message_html),
             )
+        except RetryAfter as error:
+            retry_after = error.retry_after
+            if hasattr(retry_after, "total_seconds"):
+                retry_after = retry_after.total_seconds()
+            raise PartialPublicationError(
+                index - 1,
+                messages[index - 1 :],
+                max(1.0, float(retry_after)),
+            ) from error
         except Exception as error:
             raise RuntimeError(
                 f"Серия остановлена на сообщении {index} из {len(messages)}. "
@@ -483,6 +521,7 @@ async def send_publication(
     mode: str = "auto",
     series: bool = False,
     parts: list[str] | None = None,
+    initial_delay: float = 0,
 ) -> int:
     """Отправить публикацию выбранным способом и вернуть число сообщений."""
     text = text.strip()
@@ -547,7 +586,9 @@ async def send_publication(
             raise ValueError("Обычное сообщение ограничено 4096 символами. Включи серию публикаций.")
         prepared_messages = prepare_plain_messages(text, parts or None)
         async with Bot(token=token) as bot:
-            return await _send_plain_messages_sequentially(bot, chat_id, prepared_messages)
+            return await _send_plain_messages_sequentially(
+                bot, chat_id, prepared_messages, initial_delay=initial_delay
+            )
 
     if mode == "plain_prepared":
         prepared_messages = [part for part in (parts or [text]) if part.strip()]
@@ -557,7 +598,9 @@ async def send_publication(
             if len(_plain_text_from_html(message_html)) > TEXT_LIMIT:
                 raise ValueError(f"Сообщение {index} превышает лимит обычного сообщения Telegram ({TEXT_LIMIT} символов).")
         async with Bot(token=token) as bot:
-            return await _send_plain_messages_sequentially(bot, chat_id, prepared_messages)
+            return await _send_plain_messages_sequentially(
+                bot, chat_id, prepared_messages, initial_delay=initial_delay
+            )
 
     if mode == "media_text":
         if not image_path:
@@ -607,6 +650,9 @@ def publish_sync(
     mode: str = "auto",
     series: bool = False,
     parts: list[str] | None = None,
+    initial_delay: float = 0,
 ) -> int:
     """Синхронная точка вызова для графического интерфейса."""
-    return asyncio.run(send_publication(token, chat_id, text, image_path, mode, series, parts))
+    return asyncio.run(
+        send_publication(token, chat_id, text, image_path, mode, series, parts, initial_delay)
+    )

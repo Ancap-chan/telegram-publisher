@@ -406,3 +406,54 @@ def test_series_stops_after_unconfirmed_message_and_reports_partial_progress() -
         )
 
     assert calls == ["Первый пост", "Второй пост"]
+
+def test_plain_series_waits_between_messages_and_returns_pending_after_flood(monkeypatch) -> None:
+    import asyncio
+
+    from telegram.error import RetryAfter
+
+    from telegram_publisher import publishing
+
+    messages = ["Первый пост", "Второй пост", "Третий пост"]
+    attempts: list[str] = []
+    delays: list[float] = []
+
+    class FakeBot:
+        def __init__(self, token):
+            self.token = token
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send_message(self, **kwargs):
+            attempts.append(kwargs["text"])
+            if kwargs["text"] == messages[1]:
+                raise RetryAfter(36)
+
+    async def fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(publishing, "Bot", FakeBot)
+    monkeypatch.setattr(publishing.asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(publishing.PartialPublicationError) as caught:
+        asyncio.run(
+            publishing.send_publication(
+                "test-token",
+                "@test-channel",
+                messages[0],
+                mode="plain_prepared",
+                parts=messages,
+            )
+        )
+
+    error = caught.value
+    assert error.sent_count == 1
+    assert error.pending_messages == messages[1:]
+    assert error.retry_after == 36
+    assert attempts == messages[:2]
+    assert delays == [publishing.SERIES_SEND_INTERVAL]
+

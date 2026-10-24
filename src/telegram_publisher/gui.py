@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import os
 import re
 import subprocess
@@ -29,6 +30,7 @@ from telegram_publisher.publishing import (
     estimate_message_count,
     publish_sync,
     prepare_plain_messages,
+    PartialPublicationError,
 )
 
 
@@ -89,6 +91,10 @@ class PublisherWindow:
         self.editor_status_path: Path | None = None
         self.send_in_progress = False
         self.finalized_plain_parts: list[str] | None = None
+        self.pending_messages: list[str] = []
+        self.pending_sent_count = 0
+        self.pending_retry_after = 0.0
+        self.resuming_pending = False
 
         _load_environment()
         self.profiles = self._load_profiles_with_environment()
@@ -176,6 +182,13 @@ class PublisherWindow:
         bottom.pack(fill=tk.X, pady=(14, 0))
         self.status = ttk.Label(bottom, text="Готово к работе")
         self.status.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.resend_button = ttk.Button(
+            bottom,
+            text="Дослать неопубликованное",
+            command=self._review_pending_messages,
+            state=tk.DISABLED,
+        )
+        self.resend_button.pack(side=tk.RIGHT, padx=(0, 8))
         self.send_button = ttk.Button(bottom, text="Опубликовать", command=self._send)
         self.send_button.pack(side=tk.RIGHT)
 
@@ -762,6 +775,8 @@ class PublisherWindow:
         self.send_button.configure(state=tk.DISABLED)
         self.status.configure(text="Отправка…")
         self._write_editor_status("Отправка публикации…")
+        initial_delay = self.pending_retry_after
+        self.pending_retry_after = 0.0
         thread = threading.Thread(
             target=self._send_in_background,
             args=(
@@ -773,6 +788,7 @@ class PublisherWindow:
                 self.finalized_plain_parts
                 if from_editor and self.finalized_plain_parts is not None
                 else self.editor_parts if from_editor and series else None,
+                initial_delay,
             ),
             daemon=True,
         )
@@ -786,15 +802,159 @@ class PublisherWindow:
         mode: str,
         series: bool,
         parts: list[str] | None = None,
+        initial_delay: float = 0,
     ) -> None:
         try:
             count = publish_sync(
-                profile.token, profile.chat_id, content, image_path, mode, series, parts=parts
+                profile.token,
+                profile.chat_id,
+                content,
+                image_path,
+                mode,
+                series,
+                parts=parts,
+                initial_delay=initial_delay,
             )
+        except PartialPublicationError as error:
+            self.root.after(0, self._handle_partial_publication, error)
+            return
         except Exception as error:
             self.root.after(0, self._send_failed, str(error))
             return
         self.root.after(0, self._send_succeeded, count)
+
+    def _handle_partial_publication(self, error: PartialPublicationError) -> None:
+        """Сохранить остаток серии после подтверждённого отказа Telegram по flood control."""
+        self.send_in_progress = False
+        self.send_button.configure(state=tk.NORMAL)
+        total_sent = self.pending_sent_count + error.sent_count if self.resuming_pending else error.sent_count
+        self.pending_messages = list(error.pending_messages)
+        self.pending_sent_count = total_sent
+        self.resuming_pending = False
+        self.pending_retry_after = error.retry_after + 1.0
+        self.resend_button.configure(state=tk.NORMAL)
+        self.status.configure(
+            text=f"Отправлено: {total_sent}; ожидают отправки: {len(error.pending_messages)}"
+        )
+        self._write_editor_status(
+            f"Telegram ограничил частоту публикаций. Подтверждённо отправлено: {total_sent}. "
+            f"Не отправлено: {len(error.pending_messages)}. Можно исправить и дослать остаток."
+        )
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Публикация приостановлена")
+        dialog.geometry("520x210")
+        dialog.resizable(False, False)
+        ttk.Label(
+            dialog,
+            text=(
+                f"Telegram ограничил частоту публикаций. Подтверждённо отправлено: {total_sent}.\n"
+                f"Не отправлено: {len(error.pending_messages)} сообщений.\n"
+                f"Перед повторной отправкой приложение подождёт около {math.ceil(error.retry_after + 1)} сек."
+            ),
+            wraplength=480,
+            justify=tk.LEFT,
+        ).pack(fill=tk.X, padx=18, pady=(22, 18))
+        buttons = ttk.Frame(dialog)
+        buttons.pack(fill=tk.X, padx=18, pady=(0, 16))
+        ttk.Button(
+            buttons,
+            text="Дослать неопубликованное",
+            command=lambda: (dialog.destroy(), self._review_pending_messages()),
+        ).pack(side=tk.RIGHT)
+        ttk.Button(
+            buttons,
+            text="Позже",
+            command=lambda: (dialog.destroy(), self.root.deiconify(), self.root.lift()),
+        ).pack(side=tk.RIGHT, padx=(0, 8))
+        dialog.protocol(
+            "WM_DELETE_WINDOW",
+            lambda: (dialog.destroy(), self.root.deiconify(), self.root.lift()),
+        )
+        dialog.deiconify()
+        dialog.lift()
+        dialog.focus_force()
+        dialog.grab_set()
+
+    def _review_pending_messages(self) -> None:
+        """Показать остаток серии, разрешить правку и удаление отдельных сообщений."""
+        if not self.pending_messages:
+            messagebox.showinfo("Нет сообщений для отправки", "Не осталось сообщений для досылки.", parent=self.root)
+            self.resend_button.configure(state=tk.DISABLED)
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Досылка неопубликованных сообщений")
+        dialog.geometry("900x620")
+        dialog.minsize(620, 420)
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        frame = ttk.Frame(dialog, padding=12)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(
+            frame,
+            text=(
+                f"Успешно отправлено ранее: {self.pending_sent_count}. Ниже — оставшиеся сообщения. "
+                "Выбери вкладку, исправь текст или удали сообщение. Перед повторной отправкой "
+                f"будет выдержана пауза не менее {math.ceil(self.pending_retry_after)} сек."
+            ),
+            wraplength=850,
+        ).pack(anchor=tk.W, pady=(0, 8))
+        notebook = ttk.Notebook(frame)
+        notebook.pack(fill=tk.BOTH, expand=True)
+        editors: list[tk.Text] = []
+        for index, message in enumerate(self.pending_messages, start=self.pending_sent_count + 1):
+            tab = ttk.Frame(notebook, padding=6)
+            text_box = tk.Text(tab, wrap=tk.WORD, undo=True, font=("Consolas", 10))
+            scrollbar = ttk.Scrollbar(tab, orient=tk.VERTICAL, command=text_box.yview)
+            text_box.configure(yscrollcommand=scrollbar.set)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            text_box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            text_box.insert("1.0", message)
+            notebook.add(tab, text=f"Сообщение {index}")
+            editors.append(text_box)
+
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill=tk.X, pady=(10, 0))
+
+        def delete_selected() -> None:
+            selected = notebook.select()
+            if not selected:
+                return
+            index = notebook.index(selected)
+            notebook.forget(index)
+            editors.pop(index)
+            if not editors:
+                self.pending_messages = []
+                self.resend_button.configure(state=tk.DISABLED)
+                messagebox.showinfo(
+                    "Список пуст",
+                    "Все неопубликованные сообщения удалены из очереди.",
+                    parent=dialog,
+                )
+                dialog.destroy()
+
+        def send_pending() -> None:
+            messages = [box.get("1.0", "end-1c") for box in editors]
+            messages = [message for message in messages if message.strip()]
+            if not messages:
+                messagebox.showwarning("Пустая очередь", "Добавь текст или удали окно досылки.", parent=dialog)
+                return
+            self.pending_messages = []
+            self.resuming_pending = True
+            self.resend_button.configure(state=tk.DISABLED)
+            self.finalized_plain_parts = messages
+            self.publishing_from_editor = True
+            dialog.destroy()
+            self._send()
+
+        ttk.Button(buttons, text="Удалить выбранное сообщение", command=delete_selected).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Отмена", command=dialog.destroy).pack(side=tk.RIGHT)
+        ttk.Button(buttons, text="Дослать неопубликованное", command=send_pending).pack(
+            side=tk.RIGHT, padx=(0, 8)
+        )
+        dialog.deiconify()
+        dialog.lift()
+        dialog.focus_force()
+        dialog.grab_set()
 
     def _send_failed(self, error: str) -> None:
         self.send_in_progress = False
@@ -809,8 +969,15 @@ class PublisherWindow:
 
     def _send_succeeded(self, count: int) -> None:
         self.send_in_progress = False
+        if self.resuming_pending:
+            count += self.pending_sent_count
+        self.resuming_pending = False
+        self.pending_messages = []
+        self.pending_sent_count = 0
+        self.pending_retry_after = 0.0
+        self.resend_button.configure(state=tk.DISABLED)
         self.send_button.configure(state=tk.NORMAL)
-        self.status.configure(text=f"Опубликовано. Отправлено сообщений: {count}")
+        self.status.configure(text=f"Опубликовано. Всего отправлено сообщений: {count}")
         if self.publishing_from_editor:
             self._write_editor_status(
                 f"Опубликовано. Отправлено сообщений: {count}",

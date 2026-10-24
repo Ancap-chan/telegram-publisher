@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import os
 import re
 import subprocess
@@ -955,8 +956,14 @@ class PublisherWindow:
 
     def _send_succeeded(self, count: int) -> None:
         self.send_in_progress = False
+        if self.pending_sent_count:
+            count += self.pending_sent_count
+        self.pending_messages = []
+        self.pending_sent_count = 0
+        self.pending_retry_after = 0.0
+        self.resend_button.configure(state=tk.DISABLED)
         self.send_button.configure(state=tk.NORMAL)
-        self.status.configure(text=f"Опубликовано. Отправлено сообщений: {count}")
+        self.status.configure(text=f"Опубликовано. Всего отправлено сообщений: {count}")
         if self.publishing_from_editor:
             self._write_editor_status(
                 f"Опубликовано. Отправлено сообщений: {count}",

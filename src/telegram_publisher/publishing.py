@@ -173,7 +173,7 @@ def _multipart_request(
 def _plain_text_from_html(content: str) -> str:
     """Извлечь текст для проверки лимитов, не считая HTML-разметку."""
     soup = BeautifulSoup(content, "html.parser")
-    for node in soup.find_all(["img", "video", "table", "script", "style"]):
+    for node in soup.find_all(["img", "video", "script", "style"]):
         node.decompose()
     for node in soup.find_all("br"):
         node.replace_with("\n")

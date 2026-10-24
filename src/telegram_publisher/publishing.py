@@ -34,7 +34,7 @@ PUBLICATION_MODES = {
 
 
 def split_text(text: str, limit: int = TEXT_LIMIT) -> list[str]:
-    """Разбить текст на части не длиннее лимита, по возможности по абзацам и словам."""
+    """Разбить текст по абзацам, затем по предложениям и словам, не превышая лимит."""
     text = text.strip()
     if not text:
         return []
@@ -46,6 +46,25 @@ def split_text(text: str, limit: int = TEXT_LIMIT) -> list[str]:
 
     while len(remaining) > limit:
         boundary = remaining.rfind("\n\n", 0, limit + 1)
+        if boundary <= 0:
+            candidate = remaining[: limit + 1]
+            line_boundary = remaining.rfind("\n", 0, limit + 1)
+            contains_list_items = bool(
+                re.search(r"(?:^|\n)[ \t]*(?:[•*-]|\d+[.)])[ \t]+", candidate)
+            )
+            if line_boundary > 0 and contains_list_items:
+                boundary = line_boundary
+        if boundary <= 0:
+            candidate = remaining[: limit + 1]
+            sentence_matches = list(
+                re.finditer(r"""[.!?…]+(?:["'»”’)}\]]*)\s+""", candidate)
+            )
+            if sentence_matches:
+                sentence_boundary = sentence_matches[-1].start()
+                if sentence_boundary >= int(limit * 0.5):
+                    boundary = sentence_boundary + len(
+                        sentence_matches[-1].group(0).rstrip()
+                    )
         if boundary <= 0:
             boundary = remaining.rfind("\n", 0, limit + 1)
         if boundary <= 0:
@@ -162,7 +181,7 @@ def _multipart_request(
 def _plain_text_from_html(content: str) -> str:
     """Извлечь текст для проверки лимитов, не считая HTML-разметку."""
     soup = BeautifulSoup(content, "html.parser")
-    for node in soup.find_all(["img", "video", "table", "script", "style"]):
+    for node in soup.find_all(["img", "video", "script", "style"]):
         node.decompose()
     for node in soup.find_all("br"):
         node.replace_with("\n")
@@ -176,7 +195,24 @@ def _sanitize_plain_html(content: str, *, preserve_media: bool = False) -> str:
     soup = BeautifulSoup(content, "html.parser")
     for comment in soup.find_all(string=lambda value: isinstance(value, Comment)):
         comment.extract()
-    blocked_nodes = ["script", "style", "table", "iframe"]
+    # Таблицы переводятся в обычные текстовые строки вместо полной потери данных.
+    for table in soup.find_all("table"):
+        rows = soup.new_tag("div")
+        for row in table.find_all("tr"):
+            cells = [
+                " ".join(cell.stripped_strings)
+                for cell in row.find_all(["th", "td"], recursive=False)
+            ]
+            if cells:
+                paragraph = soup.new_tag("p")
+                paragraph.string = " | ".join(cells)
+                rows.append(paragraph)
+        if rows.contents:
+            table.replace_with(rows)
+        else:
+            table.decompose()
+
+    blocked_nodes = ["script", "style", "iframe"]
     if not preserve_media:
         blocked_nodes.extend(["img", "video"])
     for node in soup.find_all(blocked_nodes):

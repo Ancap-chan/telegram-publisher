@@ -94,6 +94,7 @@ class PublisherWindow:
         self.pending_messages: list[str] = []
         self.pending_sent_count = 0
         self.pending_retry_after = 0.0
+        self.resuming_pending = False
 
         _load_environment()
         self.profiles = self._load_profiles_with_environment()
@@ -826,15 +827,17 @@ class PublisherWindow:
         """Сохранить остаток серии после подтверждённого отказа Telegram по flood control."""
         self.send_in_progress = False
         self.send_button.configure(state=tk.NORMAL)
+        total_sent = self.pending_sent_count + error.sent_count if self.resuming_pending else error.sent_count
         self.pending_messages = list(error.pending_messages)
-        self.pending_sent_count = error.sent_count
+        self.pending_sent_count = total_sent
+        self.resuming_pending = False
         self.pending_retry_after = error.retry_after + 1.0
         self.resend_button.configure(state=tk.NORMAL)
         self.status.configure(
-            text=f"Отправлено: {error.sent_count}; ожидают отправки: {len(error.pending_messages)}"
+            text=f"Отправлено: {total_sent}; ожидают отправки: {len(error.pending_messages)}"
         )
         self._write_editor_status(
-            f"Telegram ограничил частоту публикаций. Подтверждённо отправлено: {error.sent_count}. "
+            f"Telegram ограничил частоту публикаций. Подтверждённо отправлено: {total_sent}. "
             f"Не отправлено: {len(error.pending_messages)}. Можно исправить и дослать остаток."
         )
         dialog = tk.Toplevel(self.root)
@@ -844,7 +847,7 @@ class PublisherWindow:
         ttk.Label(
             dialog,
             text=(
-                f"Telegram ограничил частоту публикаций. Подтверждённо отправлено: {error.sent_count}.\n"
+                f"Telegram ограничил частоту публикаций. Подтверждённо отправлено: {total_sent}.\n"
                 f"Не отправлено: {len(error.pending_messages)} сообщений.\n"
                 f"Перед повторной отправкой приложение подождёт около {math.ceil(error.retry_after + 1)} сек."
             ),
@@ -928,6 +931,8 @@ class PublisherWindow:
                 messagebox.showwarning("Пустая очередь", "Добавь текст или удали окно досылки.", parent=dialog)
                 return
             self.pending_messages = []
+            self.resuming_pending = True
+            self.resend_button.configure(state=tk.DISABLED)
             self.finalized_plain_parts = messages
             self.publishing_from_editor = True
             dialog.destroy()
@@ -956,8 +961,9 @@ class PublisherWindow:
 
     def _send_succeeded(self, count: int) -> None:
         self.send_in_progress = False
-        if self.pending_sent_count:
+        if self.resuming_pending:
             count += self.pending_sent_count
+        self.resuming_pending = False
         self.pending_messages = []
         self.pending_sent_count = 0
         self.pending_retry_after = 0.0

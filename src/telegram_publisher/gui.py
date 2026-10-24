@@ -223,6 +223,14 @@ class PublisherWindow:
         self.status.configure(text="Готово к работе")
 
     def _manage_profiles(self, reopen_editor: bool = False) -> None:
+        # При вызове из визуального редактора главное окно Tk скрыто.
+        # Показываем его перед созданием окна настроек, иначе Windows может
+        # скрыть вместе с ним и диалог, оставив приложение работать в фоне.
+        if reopen_editor:
+            self.root.deiconify()
+            self.root.update_idletasks()
+            self.root.lift()
+
         dialog = tk.Toplevel(self.root)
         dialog.title("Профили каналов")
         dialog.transient(self.root)
@@ -348,12 +356,14 @@ class PublisherWindow:
         refill(self.selected_profile_id)
         name_entry.focus_set()
         if reopen_editor:
-            dialog.bind(
-                "<Destroy>",
-                lambda event: self.root.after(150, self._open_editor)
-                if event.widget is dialog
-                else None,
-            )
+            def reopen_after_close(event: tk.Event) -> None:
+                if event.widget is not dialog:
+                    return
+                # После закрытия настроек возвращаемся сразу в визуальный
+                # редактор, не оставляя старое окно приложения на экране.
+                self.root.after(100, self._open_editor)
+
+            dialog.bind("<Destroy>", reopen_after_close)
 
     def _on_text_modified(self, _event: tk.Event) -> None:
         if self.text.edit_modified():

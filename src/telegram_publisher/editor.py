@@ -372,10 +372,6 @@ function insertMediaFromUrl(){
  const videoByExtension=/\.(mp4|m4v|mov|webm|mkv)(?:$|[?#])/i.test(path);
  const imageByExtension=/\.(png|jpe?g|gif|webp|avif|bmp)(?:$|[?#])/i.test(path);
  const kind=videoByExtension?'video':imageByExtension?'image':(confirm('Это прямой URL видеофайла?\nНажми «ОК» для видео или «Отмена» для изображения.')?'video':'image');
- if(kind==='video'&&!videoByExtension){
-  document.getElementById('status').textContent='Для видео нужен прямой URL видеофайла, например MP4 или WebM.';
-  return;
- }
  editor.focus();
  const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
  const markup=kind==='image'?'<p><img src="'+safe+'" alt=""></p>':'<p><video controls src="'+safe+'"></video></p>';
@@ -647,7 +643,7 @@ function insertBreakAtSelection(){
  updateSeriesStatus();
 }
 document.getElementById('insert-break').addEventListener('click',insertBreakAtSelection);
-editor.addEventListener('input',updateSeriesStatus);
+editor.addEventListener('input',()=>{updatePlainCompatibility();updateSeriesStatus()});
 modeSelect.addEventListener('change',()=>{
  seriesCheckbox.checked=modeSelect.value.endsWith('_series');
  if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();

@@ -861,7 +861,15 @@ class PublisherWindow:
             text="Дослать неопубликованное",
             command=lambda: (dialog.destroy(), self._review_pending_messages()),
         ).pack(side=tk.RIGHT)
-        ttk.Button(buttons, text="Позже", command=dialog.destroy).pack(side=tk.RIGHT, padx=(0, 8))
+        ttk.Button(
+            buttons,
+            text="Позже",
+            command=lambda: (dialog.destroy(), self.root.deiconify(), self.root.lift()),
+        ).pack(side=tk.RIGHT, padx=(0, 8))
+        dialog.protocol(
+            "WM_DELETE_WINDOW",
+            lambda: (dialog.destroy(), self.root.deiconify(), self.root.lift()),
+        )
         dialog.deiconify()
         dialog.lift()
         dialog.focus_force()

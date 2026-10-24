@@ -375,7 +375,7 @@ def _plain_media_payload(content: str, image_path: str | None = None) -> dict | 
     safe_html = _sanitize_plain_html(soup.decode_contents())
     result = BeautifulSoup(safe_html, "html.parser")
     media_anchor = result.new_tag("a", href=source)
-    # Hangul Filler (U+3164) оказался надёжнее для создания превью Telegram.
+    # Три символа нулевой ширины U+200B нужны для надёжного предпросмотра Telegram.
     media_anchor.string = "\u200B\u200B\u200B"
     if result.contents:
         result.append(result.new_string("\n\n"))

@@ -914,7 +914,7 @@ class EditorApi:
             draft.get("format") != "telegram-publisher-draft"
             or draft.get("version") != 1
             or not isinstance(draft.get("html"), str)
-            or draft.get("mode") not in {"rich", "plain", "rich_series", "plain_series"}
+            or draft.get("mode") not in {"rich", "plain", "rich_series", "plain_series", "album"}
             or not isinstance(draft.get("series"), bool)
             or (draft.get("profile_id") is not None and not isinstance(draft.get("profile_id"), str))
         ):

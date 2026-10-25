@@ -740,6 +740,8 @@ class PublisherWindow:
             return
 
         message_count = estimate_message_count(plain_content, self.image_path, mode, series)
+        if mode == "album":
+            message_count = len(re.findall(r"<(?:img|video)\\b", content, re.IGNORECASE))
         if mode in {"rich", "rich_series"} and re.search(
             r"<(?:img|video)\b", content, re.IGNORECASE
         ):

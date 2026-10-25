@@ -66,6 +66,7 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 <option value="plain">Обычное сообщение (минимальное форматирование, размер до 4096 символов)</option>
 <option value="rich_series">Серия рич-сообщений</option>
 <option value="plain_series">Серия обычных сообщений</option>
+<option value="album">Альбом из 2–10 медиа с общей подписью (до 1024 символов)</option>
 </select>
 <label><input id="series" type="checkbox"> Разбить на серию постов</label>
 </div>
@@ -374,7 +375,7 @@ function draftFilename(){
 function applyDraft(draft){
  if(!draft||draft.format!=='telegram-publisher-draft'||draft.version!==1||
     typeof draft.html!=='string'||
-    !['rich','plain','rich_series','plain_series'].includes(draft.mode)||
+    !['rich','plain','rich_series','plain_series','album'].includes(draft.mode)||
     typeof draft.series!=='boolean'){
   throw new Error('Файл не является поддерживаемым черновиком Telegram Publisher.');
  }
@@ -418,6 +419,7 @@ function currentPartMediaCount(){
  return partMediaCount(rawParts[selectedIndex]||[]);
 }
 function insertMediaFromUrl(){
+ if(isAlbumMode()&&currentPartMediaCount()>=10){document.getElementById('status').textContent='В одном альбоме допускается не более 10 изображений или видео.';return}
  if(!isRichMode()&&currentPartMediaCount()>=1){document.getElementById('status').textContent='В одном обычном сообщении допускается только одно изображение или видео.';return}
  const url=askUrl('Публичный URL изображения или видео');
  if(!url)return;
@@ -426,6 +428,7 @@ function insertMediaFromUrl(){
  const host=parsed.hostname.toLowerCase().replace(/^www\./,'');
  const isVideoSite=host==='youtube.com'||host.endsWith('.youtube.com')||host==='youtu.be'||host==='youtube-nocookie.com'||host.endsWith('.youtube-nocookie.com');
  if(isVideoSite){
+  if(isAlbumMode()){document.getElementById('status').textContent='Для альбома укажите прямой публичный URL файла изображения или видео, а не страницу видеохостинга.';return}
   const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
   editor.focus();
   document.execCommand('insertHTML',false,'<p><a href="'+safe+'" data-publication-media-preview="video">'+safe+'</a></p>');
@@ -449,9 +452,10 @@ function insertMediaFromUrl(){
 document.getElementById('media').onclick=insertMediaFromUrl;
 document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,Number(prompt('Количество строк','2'))||2));const cols=Math.max(1,Math.min(10,Number(prompt('Количество столбцов','2'))||2));let table='<table><tbody>';for(let r=0;r<rows;r++){table+='<tr>';for(let c=0;c<cols;c++)table+='<td><br></td>';table+='</tr>'}table+='</tbody></table><p><br></p>';editor.focus();document.execCommand('insertHTML',false,table)};
 const seriesStatus=document.getElementById('series-status');
-function isSeriesMode(){return modeSelect.value.endsWith('_series')||seriesCheckbox.checked}
-function isRichMode(){return modeSelect.value==='rich'||modeSelect.value==='rich_series'||modeSelect.value==='media_text'}
-function messageLimit(){return isRichMode()?32768:4096}
+function isAlbumMode(){return modeSelect.value==='album'}
+function isSeriesMode(){return !isAlbumMode()&&(modeSelect.value.endsWith('_series')||seriesCheckbox.checked)}
+function isRichMode(){return modeSelect.value==='rich'||modeSelect.value==='rich_series'||modeSelect.value==='media_text'||isAlbumMode()}
+function messageLimit(){return isAlbumMode()?1024:(isRichMode()?32768:4096)}
 function makeBreak(){
  const marker=document.createElement('div');
  marker.className='series-break';
@@ -502,17 +506,20 @@ function updateSeriesStatus(){
  seriesStatus.hidden=!hasContent;
  const overflow=lengths.some(length=>length>limit);
  const tooMuchMedia=enforceSingleMedia&&mediaCounts.some(count=>count>1);
- seriesStatus.classList.toggle('warning',overflow||tooMuchMedia);
+ const albumInvalid=isAlbumMode()&&(mediaCounts[0]<2||mediaCounts[0]>10);
+ seriesStatus.classList.toggle('warning',overflow||tooMuchMedia||albumInvalid);
  if(!hasContent){seriesStatus.textContent='';return true}
  seriesStatus.textContent=parts.map((part,index)=>{
   const prefix=series?'Пост '+(index+1):'Сообщение';
   const notes=[];
-  if(lengths[index]>limit)notes.push('превышен лимит, перенесите часть текста');
+  if(lengths[index]>limit)notes.push(isAlbumMode()?'подпись к альбому ограничена 1024 символами':'превышен лимит, перенесите часть текста');
   else if(lengths[index]===limit)notes.push('лимит заполнен, больше не стоит сюда ничего добавлять');
   if(enforceSingleMedia&&mediaCounts[index]>1)notes.push('допускается не более одного изображения или видео на пост');
+  if(isAlbumMode()&&mediaCounts[index]<2)notes.push('для альбома требуется не менее двух медиа');
+  if(isAlbumMode()&&mediaCounts[index]>10)notes.push('в одном альбоме допускается не более 10 медиа');
   return prefix+': '+lengths[index]+'/'+limit+' символов'+(mediaCounts[index]?' · медиа: '+mediaCounts[index]:'')+(notes.length?' — '+notes.join('; ')+'.':'');
  }).join('\n');
- return !overflow&&!tooMuchMedia;
+ return !overflow&&!tooMuchMedia&&!albumInvalid;
 }
 const PLAIN_SUBSTITUTIONS=[
  {selector:'h1,h2,h3,h4,h5,h6',message:'Уровень заголовка будет заменён жирным текстом.'},
@@ -542,7 +549,9 @@ function updateModeUI(){
  const rich=isRichMode();
  document.querySelectorAll('[data-rich-only]').forEach(button=>button.hidden=!rich);
  document.getElementById('series-tools').classList.toggle('visible',isSeriesMode());
- seriesCheckbox.checked=modeSelect.value.endsWith('_series');
+ seriesCheckbox.disabled=isAlbumMode();
+ if(isAlbumMode())seriesCheckbox.checked=false;
+ else seriesCheckbox.checked=modeSelect.value.endsWith('_series');
  updatePlainCompatibility();
  updateSeriesStatus();
 }
@@ -720,6 +729,7 @@ modeSelect.addEventListener('change',()=>{
  updateModeUI();
 });
 seriesCheckbox.addEventListener('change',()=>{
+ if(isAlbumMode()){seriesCheckbox.checked=false;updateModeUI();return}
  if(seriesCheckbox.checked&&modeSelect.value==='plain')modeSelect.value='plain_series';
  if(seriesCheckbox.checked&&modeSelect.value==='rich')modeSelect.value='rich_series';
  if(!seriesCheckbox.checked&&modeSelect.value.endsWith('_series'))modeSelect.value=modeSelect.value==='plain_series'?'plain':'rich';
@@ -747,7 +757,7 @@ document.getElementById('publish').onclick=async()=>{
   return;
  }
  if(!updateSeriesStatus()){
-  document.getElementById('status').textContent='Исправьте превышение лимита или оставьте не более одного медиа на пост перед публикацией.';
+  document.getElementById('status').textContent=isAlbumMode()?'Для альбома добавьте от 2 до 10 медиа и сократите подпись до 1024 символов.':'Исправьте превышение лимита или оставьте не более одного медиа на пост перед публикацией.';
   return;
  }
  const usesSendMessage=modeSelect.value==='plain'||modeSelect.value==='plain_series';
@@ -814,7 +824,7 @@ MANUAL_HTML = r"""<!doctype html>
 <p>Основная область окна — визуальный редактор. Панель инструментов позволяет применять форматирование, создавать списки, заголовки, цитаты, ссылки и таблицы. Кнопка «Медиа по URL» добавляет изображение или видео по публичной ссылке. В зависимости от выбранного способа публикации доступны разные инструменты редактирования. Если выбранный способ публикации не поддерживает отдельные элементы оформления, приложение преобразует их в доступный формат.</p>
 <h2>Выбор способа публикации</h2>
 <p>Обычные сообщения поддерживают базовое форматирование: жирный шрифт, курсив, подчёркивание, зачёркивание, гиперссылки и цитаты. Для прикрепления одного изображения или видео используется скрытая ссылка, которую Telegram преобразует в предпросмотр. Максимальная длина сообщения — 4096 символов.</p>
-<p>Рич-сообщения позволяют более сложное форматирование. Для длинных публикаций можно выбрать серию сообщений.</p>
+<p>Рич-сообщения позволяют более сложное форматирование. Для длинных публикаций можно выбрать серию сообщений. Режим «Альбом» отправляет от 2 до 10 изображений и видео с общей подписью длиной до 1024 символов. Для альбома указывайте прямые публичные URL файлов, а не страницы видеохостингов.</p>
 <p>В режиме серии кнопка «Разрыв сообщения» вставляет границу в текущем месте. Разрыв можно выбрать и удалить. Перед публикацией проверяйте предупреждения о длине текста и количестве медиа.</p>
 <h2>Настройка каналов</h2>
 <p>В нижней части окна нажмите «Настроить каналы…», чтобы добавить один или несколько профилей. Для каждого профиля укажите название, идентификатор канала и токен бота, которому разрешено публиковать сообщения в этом канале. Публикации отправляются от имени бота.</p>

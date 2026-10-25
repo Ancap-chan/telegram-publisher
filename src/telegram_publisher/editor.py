@@ -69,7 +69,6 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 </div>
 <div class="publish-options">
 <button id="manage">Настроить каналы…</button>
-<button id="cancel">Отмена</button>
 <button id="publish">Опубликовать</button>
 </div>
 <span class="status" id="status">Вставка через Ctrl+V сохраняет доступное форматирование. Изображения и видео можно добавлять по публичному URL.</span>
@@ -761,7 +760,6 @@ document.getElementById('publish').onclick=async()=>{
  }
 };
 document.getElementById('manage').onclick=async()=>{await window.pywebview.api.finish(currentResult('manage_profiles'))};
-document.getElementById('cancel').onclick=async()=>{await window.pywebview.api.finish(currentResult('cancel'))};
 let statusPolling=false;
 async function pollEditorStatus(){
  if(statusPolling||!window.pywebview||!window.pywebview.api)return;
@@ -834,8 +832,6 @@ class EditorApi:
     def finish(self, result: dict) -> None:
         """Передать запрос приложению; настройки не закрывают редактор."""
         self.output_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
-        if result.get("action") == "cancel":
-            self.window.destroy()
 
     def publish(self, result: dict) -> None:
         """Передать публикацию основному процессу, не закрывая редактор."""

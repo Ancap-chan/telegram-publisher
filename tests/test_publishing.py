@@ -554,7 +554,12 @@ def test_album_publication_sends_media_group(monkeypatch) -> None:
     assert isinstance(calls[0]["media"][1], InputMediaVideo)
 
 
-def test_album_message_count_is_one_group_for_confirmation() -> None:
+def test_album_message_count_matches_number_of_media_items() -> None:
     from telegram_publisher.publishing import estimate_message_count
 
-    assert estimate_message_count("подпись", None, "album") == 1
+    content = (
+        '<p>Подпись</p>'
+        '<img src="https://example.org/one.jpg">'
+        '<video src="https://example.org/two.mp4"></video>'
+    )
+    assert estimate_message_count(content, None, "album") == 2

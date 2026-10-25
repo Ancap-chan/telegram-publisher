@@ -457,3 +457,104 @@ def test_plain_series_waits_between_messages_and_returns_pending_after_flood(mon
     assert attempts == messages[:2]
     assert delays == [publishing.SERIES_SEND_INTERVAL]
 
+
+
+def test_album_media_uses_photo_video_and_shared_formatted_caption() -> None:
+    from telegram import InputMediaPhoto, InputMediaVideo
+
+    from telegram_publisher.publishing import _prepare_album_media
+
+    media = _prepare_album_media(
+        '<p><strong>Общая подпись</strong></p>'
+        '<img src="https://example.org/one.jpg">'
+        '<video src="https://example.org/two.mp4"></video>'
+    )
+
+    assert len(media) == 2
+    assert isinstance(media[0], InputMediaPhoto)
+    assert isinstance(media[1], InputMediaVideo)
+    assert media[0].media == "https://example.org/one.jpg"
+    assert media[1].media == "https://example.org/two.mp4"
+    assert media[0].caption == "<strong>Общая подпись</strong>"
+    assert media[0].parse_mode == "HTML"
+    assert media[1].caption is None
+
+
+@pytest.mark.parametrize(
+    "content, message",
+    [
+        ('<img src="https://example.org/one.jpg">', "от 2 до 10"),
+        (
+            '<img src="https://example.org/one.jpg">'
+            + "".join(
+                f'<img src="https://example.org/{index}.jpg">'
+                for index in range(10)
+            ),
+            "от 2 до 10",
+        ),
+        (
+            '<p>' + ("а" * 1025) + '</p>'
+            '<img src="https://example.org/one.jpg">'
+            '<img src="https://example.org/two.jpg">',
+            "1024 символ",
+        ),
+        (
+            '<img src="data:image/png;base64,aGVsbG8;">'
+            '<img src="https://example.org/two.jpg">',
+            "прямого публичного HTTP",
+        ),
+    ],
+)
+def test_album_rejects_invalid_media_or_caption(content: str, message: str) -> None:
+    from telegram_publisher.publishing import _prepare_album_media
+
+    with pytest.raises(ValueError, match=message):
+        _prepare_album_media(content)
+
+
+def test_album_publication_sends_media_group(monkeypatch) -> None:
+    import asyncio
+
+    from telegram import InputMediaPhoto, InputMediaVideo
+
+    from telegram_publisher import publishing
+
+    calls = []
+
+    class FakeBot:
+        def __init__(self, token):
+            self.token = token
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send_media_group(self, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr(publishing, "Bot", FakeBot)
+    sent = asyncio.run(
+        publishing.send_publication(
+            "test-token",
+            "@test-channel",
+            '<p>Подпись</p>'
+            '<img src="https://example.org/one.jpg">'
+            '<video src="https://example.org/two.mp4"></video>',
+            mode="album",
+        )
+    )
+
+    assert sent == 2
+    assert len(calls) == 1
+    assert calls[0]["chat_id"] == "@test-channel"
+    assert len(calls[0]["media"]) == 2
+    assert isinstance(calls[0]["media"][0], InputMediaPhoto)
+    assert isinstance(calls[0]["media"][1], InputMediaVideo)
+
+
+def test_album_message_count_is_one_group_for_confirmation() -> None:
+    from telegram_publisher.publishing import estimate_message_count
+
+    assert estimate_message_count("подпись", None, "album") == 1

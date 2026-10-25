@@ -367,9 +367,7 @@ function applyDraft(draft){
  editor.innerHTML=draft.html;
  modeSelect.value=draft.mode;
  seriesCheckbox.checked=draft.series;
- if(draft.profile_id&&Array.from(channelSelect.options).some(option=>option.value===draft.profile_id)){
-  channelSelect.value=draft.profile_id;
- }
+ channelSelect.value=draft.profile_id||'';
  updateModeUI();
  editor.focus();
 }

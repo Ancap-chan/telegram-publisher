@@ -124,7 +124,7 @@ def estimate_message_count(
             else 0
         )
     if mode == "album":
-        return 1
+        return len(re.findall(r"<(?:img|video)\\b", text, re.IGNORECASE))
     if mode == "plain_series":
         return len(split_text(text, TEXT_LIMIT))
     if mode == "rich_series" or (series and mode in {"rich", "media_text"}):

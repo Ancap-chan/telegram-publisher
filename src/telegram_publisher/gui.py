@@ -76,9 +76,6 @@ class PublisherWindow:
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Telegram Publisher")
-        self.root.geometry("820x680")
-        self.root.minsize(620, 480)
         self.image_path: str | None = None
         self.html_content = ""
         self.editor_parts: list[str] | None = None
@@ -100,7 +97,7 @@ class PublisherWindow:
         self.profiles = self._load_profiles_with_environment()
         self.selected_profile_id: str | None = None
 
-        self._build_interface()
+        self._build_backend_state()
         self._refresh_profiles()
         self._update_counter()
         self.root.bind("<Control-e>", lambda _event: self._open_editor())
@@ -135,62 +132,22 @@ class PublisherWindow:
                 return [ChannelProfile("env-session", "Канал из .env", chat_id, token)]
         return []
 
-    def _build_interface(self) -> None:
-        container = ttk.Frame(self.root, padding=12)
-        container.pack(fill=tk.BOTH, expand=True)
+    def _build_backend_state(self) -> None:
+        """Создать только невидимое состояние для логики публикации.
 
-        header = ttk.Frame(container)
-        header.pack(fill=tk.X)
-        ttk.Label(header, text="Канал:").pack(side=tk.LEFT, padx=(0, 6))
-        self.profile_combo = ttk.Combobox(header, state="readonly", width=42)
-        self.profile_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.profile_combo.bind("<<ComboboxSelected>>", self._on_profile_selected)
-        ttk.Button(header, text="Настроить каналы…", command=self._manage_profiles).pack(
-            side=tk.LEFT, padx=(8, 0)
-        )
-
-        publication_options = ttk.Frame(container)
-        publication_options.pack(fill=tk.X, pady=(14, 0))
-        ttk.Label(publication_options, text="Способ публикации:").pack(side=tk.LEFT)
-        self.series_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            publication_options,
-            text="Разбить на серию публикаций",
-            variable=self.series_var,
-            command=self._update_publication_options,
-        ).pack(side=tk.RIGHT)
-        self.mode_combo = ttk.Combobox(publication_options, state="readonly", width=34)
-        self.mode_combo.pack(side=tk.LEFT, padx=(8, 0))
-        self.mode_combo.bind("<<ComboboxSelected>>", self._on_mode_selected)
-        self.mode_hint = ttk.Label(container, text="", wraplength=760)
-        self.mode_hint.pack(anchor=tk.W, pady=(4, 0))
-
-        editor_controls = ttk.Frame(container)
-        editor_controls.pack(fill=tk.X, pady=(8, 4))
-        ttk.Label(editor_controls, text="Содержимое публикации").pack(side=tk.LEFT)
-        self.text = tk.Text(container, wrap=tk.WORD, undo=True, font=("Segoe UI", 11), height=18)
-        self.text.pack(fill=tk.BOTH, expand=True)
-        self.text.bind("<<Modified>>", self._on_text_modified)
-        self.text.edit_modified(False)
-
-        controls = ttk.Frame(container)
-        controls.pack(fill=tk.X, pady=(8, 0))
-        self.counter = ttk.Label(controls, text="")
-        self.counter.pack(side=tk.LEFT)
-
-        bottom = ttk.Frame(container)
-        bottom.pack(fill=tk.X, pady=(14, 0))
-        self.status = ttk.Label(bottom, text="Готово к работе")
-        self.status.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.resend_button = ttk.Button(
-            bottom,
-            text="Дослать неопубликованное",
-            command=self._review_pending_messages,
-            state=tk.DISABLED,
-        )
-        self.resend_button.pack(side=tk.RIGHT, padx=(0, 8))
-        self.send_button = ttk.Button(bottom, text="Опубликовать", command=self._send)
-        self.send_button.pack(side=tk.RIGHT)
+        Главное окно Tkinter не содержит пользовательского интерфейса: его
+        корневой объект нужен для цикла событий и дополнительных диалогов.
+        Все элементы ниже остаются неупакованными и не отображаются.
+        """
+        self.profile_combo = ttk.Combobox(self.root, state="readonly")
+        self.series_var = tk.BooleanVar(master=self.root, value=False)
+        self.mode_combo = ttk.Combobox(self.root, state="readonly")
+        self.mode_hint = ttk.Label(self.root, text="")
+        self.text = tk.Text(self.root)
+        self.counter = ttk.Label(self.root, text="")
+        self.status = ttk.Label(self.root, text="")
+        self.resend_button = ttk.Button(self.root)
+        self.send_button = ttk.Button(self.root)
 
     def _refresh_profiles(self, select_id: str | None = None) -> None:
         try:
@@ -223,17 +180,10 @@ class PublisherWindow:
         self.status.configure(text="Готово к работе")
 
     def _manage_profiles(self, reopen_editor: bool = False) -> None:
-        # При вызове из визуального редактора главное окно Tk скрыто.
-        # Показываем его перед созданием окна настроек, иначе Windows может
-        # скрыть вместе с ним и диалог, оставив приложение работать в фоне.
-        if reopen_editor:
-            self.root.deiconify()
-            self.root.update_idletasks()
-            self.root.lift()
-
+        # Скрытый корневой объект Tkinter нужен только для дополнительных
+        # диалогов. Окно настроек не должно зависеть от видимости его владельца.
         dialog = tk.Toplevel(self.root)
         dialog.title("Профили каналов")
-        dialog.transient(self.root)
         dialog.grab_set()
         dialog.geometry("620x330")
         dialog.minsize(560, 300)
@@ -355,15 +305,26 @@ class PublisherWindow:
         ttk.Button(buttons, text="Закрыть", command=dialog.destroy).pack(side=tk.RIGHT)
         refill(self.selected_profile_id)
         name_entry.focus_set()
-        if reopen_editor:
-            def reopen_after_close(event: tk.Event) -> None:
-                if event.widget is not dialog:
-                    return
-                # После закрытия настроек возвращаемся сразу в визуальный
-                # редактор, не оставляя старое окно приложения на экране.
+        def after_close(event: tk.Event) -> None:
+            if event.widget is not dialog:
+                return
+            if reopen_editor:
                 self.root.after(100, self._open_editor)
+                return
+            self._write_editor_status(
+                "Настройки каналов обновлены.",
+                profiles=[
+                    {
+                        "profile_id": profile.profile_id,
+                        "name": profile.name,
+                        "chat_id": profile.chat_id,
+                    }
+                    for profile in self.profiles
+                ],
+                selected_profile_id=self.selected_profile_id,
+            )
 
-            dialog.bind("<Destroy>", reopen_after_close)
+        dialog.bind("<Destroy>", after_close)
 
     def _on_text_modified(self, _event: tk.Event) -> None:
         if self.text.edit_modified():
@@ -404,7 +365,6 @@ class PublisherWindow:
             ),
             encoding="utf-8",
         )
-        self.root.withdraw()
         try:
             self.editor_process = subprocess.Popen(
                 [
@@ -455,6 +415,10 @@ class PublisherWindow:
                 self.publishing_from_editor = True
                 self.status.configure(text="Подготовка публикации")
                 self._send()
+            elif running and action == "manage_profiles":
+                result_path.unlink(missing_ok=True)
+                self._apply_editor_result(result)
+                self._manage_profiles(reopen_editor=False)
             elif not running:
                 result_path.unlink(missing_ok=True)
 
@@ -469,8 +433,10 @@ class PublisherWindow:
 
         action = result.get("action")
         if action == "manage_profiles":
+            # Защитный путь для старой версии редактора, завершившейся
+            # после запроса настроек.
             self._apply_editor_result(result)
-            self._manage_profiles(reopen_editor=True)
+            self._manage_profiles(reopen_editor=False)
             return
         if action == "publish":
             # Защитный путь на случай, если процесс завершился до обработки запроса.
@@ -606,12 +572,22 @@ class PublisherWindow:
         if selected_label is not None:
             self.mode_combo.set(selected_label)
 
-    def _write_editor_status(self, message: str, clear: bool = False) -> None:
+    def _write_editor_status(
+        self,
+        message: str,
+        clear: bool = False,
+        profiles: list[dict[str, str]] | None = None,
+        selected_profile_id: str | None = None,
+    ) -> None:
         if self.editor_status_path is None:
             return
+        payload: dict[str, object] = {"message": message, "clear": clear}
+        if profiles is not None:
+            payload["profiles"] = profiles
+            payload["selected_profile_id"] = selected_profile_id
         try:
             self.editor_status_path.write_text(
-                json.dumps({"message": message, "clear": clear}, ensure_ascii=False),
+                json.dumps(payload, ensure_ascii=False),
                 encoding="utf-8",
             )
         except OSError:
@@ -874,12 +850,9 @@ class PublisherWindow:
         ttk.Button(
             buttons,
             text="Позже",
-            command=lambda: (dialog.destroy(), self.root.deiconify(), self.root.lift()),
+            command=dialog.destroy,
         ).pack(side=tk.RIGHT, padx=(0, 8))
-        dialog.protocol(
-            "WM_DELETE_WINDOW",
-            lambda: (dialog.destroy(), self.root.deiconify(), self.root.lift()),
-        )
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
         dialog.deiconify()
         dialog.lift()
         dialog.focus_force()

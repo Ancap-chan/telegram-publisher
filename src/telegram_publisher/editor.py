@@ -420,7 +420,7 @@ function currentPartMediaCount(){
 }
 function insertMediaFromUrl(){
  if(isAlbumMode()&&currentPartMediaCount()>=10){document.getElementById('status').textContent='В одном альбоме допускается не более 10 изображений или видео.';return}
- if(!isRichMode()&&currentPartMediaCount()>=1){document.getElementById('status').textContent='В одном обычном сообщении допускается только одно изображение или видео.';return}
+ if(!isRichMode()&&!isAlbumMode()&&currentPartMediaCount()>=1){document.getElementById('status').textContent='В одном обычном сообщении допускается только одно изображение или видео.';return}
  const url=askUrl('Публичный URL изображения или видео');
  if(!url)return;
  let parsed;
@@ -454,7 +454,7 @@ document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,
 const seriesStatus=document.getElementById('series-status');
 function isAlbumMode(){return modeSelect.value==='album'}
 function isSeriesMode(){return !isAlbumMode()&&(modeSelect.value.endsWith('_series')||seriesCheckbox.checked)}
-function isRichMode(){return modeSelect.value==='rich'||modeSelect.value==='rich_series'||modeSelect.value==='media_text'||isAlbumMode()}
+function isRichMode(){return modeSelect.value==='rich'||modeSelect.value==='rich_series'||modeSelect.value==='media_text'}
 function messageLimit(){return isAlbumMode()?1024:(isRichMode()?32768:4096)}
 function makeBreak(){
  const marker=document.createElement('div');
@@ -499,7 +499,7 @@ function updateSeriesStatus(){
  const series=isSeriesMode();
  const parts=series?partNodes():[Array.from(editor.childNodes).filter(node=>!(node.nodeType===1&&node.classList.contains('series-break')))];
  const limit=messageLimit();
- const enforceSingleMedia=!isRichMode();
+ const enforceSingleMedia=!isRichMode()&&!isAlbumMode();
  const lengths=parts.map(partLength);
  const mediaCounts=parts.map(partMediaCount);
  const hasContent=parts.some((part,index)=>lengths[index]>0||mediaCounts[index]>0);
@@ -536,7 +536,7 @@ function updatePlainCompatibility(){
    delete node.dataset.plainOriginalTitle;
   }
  });
- if(isRichMode())return;
+ if(isRichMode()||isAlbumMode())return;
  for(const rule of PLAIN_SUBSTITUTIONS){
   editor.querySelectorAll(rule.selector).forEach(node=>{
    node.classList.add('plain-unsupported');

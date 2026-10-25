@@ -42,7 +42,7 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 </head>
 <body>
 <header>
-<div class="toolbar-row file-tools"><button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button></div>
+<div class="toolbar-row file-tools"><button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button><button id="save-draft">Сохранить черновик…</button></div>
 <div class="toolbar-row edit-tools"><button data-cmd="bold"><b>Жирный</b></button><button data-cmd="italic"><i>Курсив</i></button><button data-cmd="underline"><u>Подчёркнутый</u></button><button data-cmd="strikeThrough"><s>Зачёркнутый</s></button>
 <button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button class="heading-tool" data-cmd="formatBlock" data-value="h1" data-rich-only>H1</button><button class="heading-tool" data-cmd="formatBlock" data-value="h2" data-rich-only>H2</button><button class="heading-tool" data-cmd="formatBlock" data-value="h3" data-rich-only>H3</button><button class="heading-tool" data-cmd="formatBlock" data-value="h4" data-rich-only>H4</button><button class="heading-tool" data-cmd="formatBlock" data-value="h5" data-rich-only>H5</button><button class="heading-tool" data-cmd="formatBlock" data-value="h6" data-rich-only>H6</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
 <button id="link">Ссылка</button><button id="media">Медиа по URL</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span></div>
@@ -331,7 +331,54 @@ document.getElementById('import-url').onclick=async()=>{
  await setImportedContent(window.pywebview.api.import_url(url.trim()));
 };
 document.getElementById('import-file').onclick=async()=>{
- await setImportedContent(window.pywebview.api.import_file());
+ const status=document.getElementById('status');
+ try{
+  const selected=await window.pywebview.api.open_file();
+  if(!selected)return;
+  if(selected.type==='draft'){
+   applyDraft(selected.draft);
+   status.textContent='Черновик загружен.';
+  }else if(selected.type==='content'){
+   await setImportedContent(Promise.resolve(selected.html));
+  }else{
+   throw new Error('Неизвестный формат файла.');
+  }
+ }catch(error){
+  status.textContent='Не удалось открыть файл: '+(error&&error.message?error.message:String(error));
+ }
+};
+function currentDraft(){
+ return {
+  format:'telegram-publisher-draft',
+  version:1,
+  html:editor.innerHTML,
+  mode:modeSelect.value,
+  series:isSeriesMode(),
+  profile_id:channelSelect.value||null
+ };
+}
+function applyDraft(draft){
+ if(!draft||draft.format!=='telegram-publisher-draft'||draft.version!==1||
+    typeof draft.html!=='string'||
+    !['rich','plain','rich_series','plain_series'].includes(draft.mode)||
+    typeof draft.series!=='boolean'){
+  throw new Error('Файл не является поддерживаемым черновиком Telegram Publisher.');
+ }
+ editor.innerHTML=draft.html;
+ modeSelect.value=draft.mode;
+ seriesCheckbox.checked=draft.series;
+ channelSelect.value=draft.profile_id||'';
+ updateModeUI();
+ editor.focus();
+}
+document.getElementById('save-draft').onclick=async()=>{
+ const status=document.getElementById('status');
+ try{
+  const saved=await window.pywebview.api.save_draft(currentDraft());
+  if(saved)status.textContent='Черновик сохранён: '+saved;
+ }catch(error){
+  status.textContent='Не удалось сохранить черновик: '+(error&&error.message?error.message:String(error));
+ }
 };
 document.querySelectorAll('[data-cmd]').forEach(button=>button.addEventListener('click',()=>{
  editor.focus();const cmd=button.dataset.cmd;document.execCommand(cmd,false,button.dataset.value||null);
@@ -765,6 +812,65 @@ class EditorApi:
         """Загрузить публикацию по URL и вернуть HTML для редактора."""
         return import_from_url(url)
 
+    def open_file(self) -> dict | None:
+        """Открыть документ для импорта или восстановить черновик редактора."""
+        paths = self.window.create_file_dialog(
+            webview.FileDialog.OPEN,
+            allow_multiple=False,
+            file_types=(
+                "Черновики Telegram Publisher (*.draft)",
+                "Поддерживаемые документы (*.txt;*.html;*.htm;*.md;*.markdown;*.docx;*.odt)",
+                "Текстовые файлы (*.txt)",
+                "HTML (*.html;*.htm)",
+                "Markdown (*.md;*.markdown)",
+                "Документы Word (*.docx)",
+                "Документы OpenDocument (*.odt)",
+            ),
+        )
+        if not paths:
+            return None
+        path = Path(paths[0])
+        if path.suffix.lower() == ".draft":
+            try:
+                draft = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise ValueError(f"Не удалось прочитать файл черновика: {error}") from error
+            return {"type": "draft", "draft": draft}
+        return {"type": "content", "html": import_from_file(path)}
+
+    def save_draft(self, draft: dict) -> str | None:
+        """Сохранить полное состояние редактора в файл .draft."""
+        if not isinstance(draft, dict):
+            raise ValueError("Не удалось получить данные черновика.")
+        if (
+            draft.get("format") != "telegram-publisher-draft"
+            or draft.get("version") != 1
+            or not isinstance(draft.get("html"), str)
+            or draft.get("mode") not in {"rich", "plain", "rich_series", "plain_series"}
+            or not isinstance(draft.get("series"), bool)
+            or (draft.get("profile_id") is not None and not isinstance(draft.get("profile_id"), str))
+        ):
+            raise ValueError("Редактор передал некорректные данные черновика.")
+        path = self.window.create_file_dialog(
+            webview.FileDialog.SAVE,
+            save_filename="Черновик.draft",
+            file_types=("Черновики Telegram Publisher (*.draft)",),
+        )
+        if not path:
+            return None
+        if isinstance(path, (list, tuple)):
+            path = path[0] if path else None
+        if not path:
+            return None
+        destination = Path(path)
+        if destination.suffix.lower() != ".draft":
+            destination = destination.with_suffix(".draft")
+        destination.write_text(
+            json.dumps(draft, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return str(destination)
+
     def import_file(self) -> str | None:
         """Предложить выбрать локальный файл и преобразовать его в HTML."""
         paths = self.window.create_file_dialog(
@@ -799,7 +905,7 @@ def main() -> None:
     status_path = output_path.with_name("editor-status.json")
     status_path.unlink(missing_ok=True)
     api = EditorApi(output_path, status_path, window)
-    window.expose(api.finish, api.publish, api.get_status, api.import_url, api.import_file)
+    window.expose(api.finish, api.publish, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft)
 
     def initialize() -> None:
         window.evaluate_js(

@@ -883,7 +883,6 @@ class EditorApi:
             try:
                 self.manual_window.show()
                 self.manual_window.restore()
-                self.manual_window.focus()
                 return
             except Exception:
                 self.manual_window = None
@@ -892,7 +891,7 @@ class EditorApi:
             width=780, height=780, resizable=True,
         )
         self.manual_window = manual
-        manual.events.closed += lambda: setattr(self, "manual_window", None)
+        manual.events.closed += lambda *_args: setattr(self, "manual_window", None)
 
     def save_draft(self, draft: dict, filename: str = "Черновик") -> str | None:
         """Сохранить полное состояние редактора в файл .draft."""

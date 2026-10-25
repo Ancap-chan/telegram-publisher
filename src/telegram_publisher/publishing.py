@@ -574,7 +574,7 @@ async def send_publication(
         media = _prepare_album_media(text, image_path)
         async with Bot(token=token) as bot:
             await bot.send_media_group(chat_id=chat_id, media=media)
-        return 1
+        return len(media)
 
     if not text and not image_path:
         raise ValueError("Добавьте текст или выберите изображение для публикации.")

@@ -124,7 +124,7 @@ def estimate_message_count(
             else 0
         )
     if mode == "album":
-        return len(re.findall(r"<(?:img|video)\\b", text, re.IGNORECASE))
+        return len(re.findall(r"<(?:img|video)\b", text, re.IGNORECASE))
     if mode == "plain_series":
         return len(split_text(text, TEXT_LIMIT))
     if mode == "rich_series" or (series and mode in {"rich", "media_text"}):
@@ -385,7 +385,8 @@ def _prepare_album_media(content: str, image_path: str | None = None) -> list[In
 
     sources: list[tuple[str, str]] = []
     for index, node in enumerate(media_nodes, start=1):
-        source = str(node.get("src", "")).strip()
+        source_node = node.find("source") if node.name == "video" else None
+        source = str(node.get("src") or (source_node.get("src") if source_node else "")).strip()
         if not re.match(r"^https?://[^/\s]+", source, re.IGNORECASE):
             raise ValueError(
                 f"Медиа №{index} не имеет прямого публичного HTTP(S)-адреса. "

@@ -223,17 +223,10 @@ class PublisherWindow:
         self.status.configure(text="Готово к работе")
 
     def _manage_profiles(self, reopen_editor: bool = False) -> None:
-        # При вызове из визуального редактора главное окно Tk скрыто.
-        # Показываем его перед созданием окна настроек, иначе Windows может
-        # скрыть вместе с ним и диалог, оставив приложение работать в фоне.
-        if reopen_editor:
-            self.root.deiconify()
-            self.root.update_idletasks()
-            self.root.lift()
-
+        # Скрытый корневой объект Tkinter нужен только для дополнительных
+        # диалогов. Окно настроек не должно зависеть от видимости его владельца.
         dialog = tk.Toplevel(self.root)
         dialog.title("Профили каналов")
-        dialog.transient(self.root)
         dialog.grab_set()
         dialog.geometry("620x330")
         dialog.minsize(560, 300)
@@ -355,15 +348,26 @@ class PublisherWindow:
         ttk.Button(buttons, text="Закрыть", command=dialog.destroy).pack(side=tk.RIGHT)
         refill(self.selected_profile_id)
         name_entry.focus_set()
-        if reopen_editor:
-            def reopen_after_close(event: tk.Event) -> None:
-                if event.widget is not dialog:
-                    return
-                # После закрытия настроек возвращаемся сразу в визуальный
-                # редактор, не оставляя старое окно приложения на экране.
+        def after_close(event: tk.Event) -> None:
+            if event.widget is not dialog:
+                return
+            if reopen_editor:
                 self.root.after(100, self._open_editor)
+                return
+            self._write_editor_status(
+                "Настройки каналов обновлены.",
+                profiles=[
+                    {
+                        "profile_id": profile.profile_id,
+                        "name": profile.name,
+                        "chat_id": profile.chat_id,
+                    }
+                    for profile in self.profiles
+                ],
+                selected_profile_id=self.selected_profile_id,
+            )
 
-            dialog.bind("<Destroy>", reopen_after_close)
+        dialog.bind("<Destroy>", after_close)
 
     def _on_text_modified(self, _event: tk.Event) -> None:
         if self.text.edit_modified():
@@ -455,6 +459,10 @@ class PublisherWindow:
                 self.publishing_from_editor = True
                 self.status.configure(text="Подготовка публикации")
                 self._send()
+            elif running and action == "manage_profiles":
+                result_path.unlink(missing_ok=True)
+                self._apply_editor_result(result)
+                self._manage_profiles(reopen_editor=False)
             elif not running:
                 result_path.unlink(missing_ok=True)
 
@@ -469,8 +477,10 @@ class PublisherWindow:
 
         action = result.get("action")
         if action == "manage_profiles":
+            # Защитный путь для старой версии редактора, завершившейся
+            # после запроса настроек.
             self._apply_editor_result(result)
-            self._manage_profiles(reopen_editor=True)
+            self._manage_profiles(reopen_editor=False)
             return
         if action == "publish":
             # Защитный путь на случай, если процесс завершился до обработки запроса.
@@ -606,12 +616,22 @@ class PublisherWindow:
         if selected_label is not None:
             self.mode_combo.set(selected_label)
 
-    def _write_editor_status(self, message: str, clear: bool = False) -> None:
+    def _write_editor_status(
+        self,
+        message: str,
+        clear: bool = False,
+        profiles: list[dict[str, str]] | None = None,
+        selected_profile_id: str | None = None,
+    ) -> None:
         if self.editor_status_path is None:
             return
+        payload: dict[str, object] = {"message": message, "clear": clear}
+        if profiles is not None:
+            payload["profiles"] = profiles
+            payload["selected_profile_id"] = selected_profile_id
         try:
             self.editor_status_path.write_text(
-                json.dumps({"message": message, "clear": clear}, ensure_ascii=False),
+                json.dumps(payload, ensure_ascii=False),
                 encoding="utf-8",
             )
         except OSError:

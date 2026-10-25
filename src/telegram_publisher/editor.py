@@ -818,8 +818,8 @@ class EditorApi:
             webview.FileDialog.OPEN,
             allow_multiple=False,
             file_types=(
-                "Черновики Telegram Publisher (*.draft)",
-                "Поддерживаемые документы (*.txt;*.html;*.htm;*.md;*.markdown;*.docx;*.odt)",
+                "Поддерживаемые форматы (*.draft;*.txt;*.html;*.htm;*.md;*.markdown;*.docx;*.odt)",
+                "Черновик Telegram Publisher (*.draft)",
                 "Текстовые файлы (*.txt)",
                 "HTML (*.html;*.htm)",
                 "Markdown (*.md;*.markdown)",

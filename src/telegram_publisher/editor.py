@@ -42,7 +42,7 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 </head>
 <body>
 <header>
-<div class="toolbar-row file-tools"><button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button><button id="save-draft">Сохранить черновик…</button></div>
+<div class="toolbar-row file-tools"><button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button><button id="save-draft">Сохранить черновик…</button><button id="manual" style="margin-left:auto">Руководство</button></div>
 <div class="toolbar-row edit-tools"><button data-cmd="bold"><b>Жирный</b></button><button data-cmd="italic"><i>Курсив</i></button><button data-cmd="underline"><u>Подчёркнутый</u></button><button data-cmd="strikeThrough"><s>Зачёркнутый</s></button>
 <button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button class="heading-tool" data-cmd="formatBlock" data-value="h1" data-rich-only>H1</button><button class="heading-tool" data-cmd="formatBlock" data-value="h2" data-rich-only>H2</button><button class="heading-tool" data-cmd="formatBlock" data-value="h3" data-rich-only>H3</button><button class="heading-tool" data-cmd="formatBlock" data-value="h4" data-rich-only>H4</button><button class="heading-tool" data-cmd="formatBlock" data-value="h5" data-rich-only>H5</button><button class="heading-tool" data-cmd="formatBlock" data-value="h6" data-rich-only>H6</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
 <button id="link">Ссылка</button><button id="media">Медиа по URL</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span></div>
@@ -357,6 +357,18 @@ function currentDraft(){
   profile_id:channelSelect.value||null
  };
 }
+function draftFilename(){
+ const heading=editor.querySelector('h1,h2,h3,h4,h5,h6');
+ let title=heading?(heading.innerText||heading.textContent||'').trim():'';
+ if(!title){
+  const clone=editor.cloneNode(true);
+  clone.querySelectorAll('.series-break').forEach(node=>node.remove());
+  const text=(clone.innerText||clone.textContent||'').replace(/\s+/g,' ').trim();
+  title=text.split(' ').filter(Boolean).slice(0,3).join(' ');
+ }
+ title=title.replace(/[<>:"/\\|?*\x00-\x1f]/g,' ').replace(/\s+/g,' ').trim().replace(/[. ]+$/,'');
+ return (title||'Черновик').slice(0,100);
+}
 function applyDraft(draft){
  if(!draft||draft.format!=='telegram-publisher-draft'||draft.version!==1||
     typeof draft.html!=='string'||
@@ -374,11 +386,15 @@ function applyDraft(draft){
 document.getElementById('save-draft').onclick=async()=>{
  const status=document.getElementById('status');
  try{
-  const saved=await window.pywebview.api.save_draft(currentDraft());
+  const saved=await window.pywebview.api.save_draft(currentDraft(),draftFilename());
   if(saved)status.textContent='Черновик сохранён: '+saved;
  }catch(error){
   status.textContent='Не удалось сохранить черновик: '+(error&&error.message?error.message:String(error));
  }
+};
+document.getElementById('manual').onclick=async()=>{
+ try{await window.pywebview.api.open_manual()}
+ catch(error){document.getElementById('status').textContent='Не удалось открыть руководство: '+(error&&error.message?error.message:String(error));}
 };
 document.querySelectorAll('[data-cmd]').forEach(button=>button.addEventListener('click',()=>{
  editor.focus();const cmd=button.dataset.cmd;document.execCommand(cmd,false,button.dataset.value||null);
@@ -779,6 +795,28 @@ window.applyEditorConfig=applyConfig;
 </body></html>"""
 
 
+MANUAL_HTML = r"""<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Руководство — Telegram Publisher</title>
+<style>body{font:16px "Segoe UI",sans-serif;line-height:1.55;color:#222;background:#f4f5f7;margin:0;padding:24px}article{max-width:760px;margin:0 auto;background:#fff;padding:28px 34px;border-radius:8px;box-shadow:0 1px 5px #0001}h1{margin-top:0}h2{margin-top:1.5em;font-size:1.2em}a{color:#1558a6}li{margin:.35em 0}.meta{color:#555}</style>
+</head><body><article>
+<h1>Руководство по Telegram Publisher</h1>
+<p class="meta"><b>Версия:</b> 0.1.0<br><b>Дата сборки:</b> 25.10.2026<br><b>Автор:</b> Анкап-тян</p>
+<p>Сайт: <a href="https://ancapchan.info" target="_blank" rel="noreferrer">https://ancapchan.info</a><br>Телеграм-канал: <a href="https://t.me/ancapchan" target="_blank" rel="noreferrer">https://t.me/ancapchan</a></p>
+<h2>Подготовка публикации</h2>
+<p>Основная область окна — визуальный редактор. Текст можно набирать вручную или вставлять из буфера обмена. Панель инструментов позволяет применять форматирование, создавать списки, заголовки, цитаты, ссылки и таблицы. Кнопка «Медиа по URL» добавляет изображение или видео по публичной ссылке.</p>
+<h2>Импорт и черновики</h2>
+<ul><li><b>Импортировать по ссылке</b> — загрузить публикацию со страницы по URL.</li><li><b>Открыть файл</b> — импортировать TXT, HTML, Markdown, DOCX или ODT либо восстановить черновик .draft.</li><li><b>Сохранить черновик</b> — сохранить форматирование, режим публикации, выбранный канал и положение разрывов серии в файле .draft.</li></ul>
+<h2>Выбор способа публикации</h2>
+<p>В нижней части окна выбери канал и способ публикации. Обычный текст отправляется без форматирования; рич-текст сохраняет поддерживаемое оформление. Для длинных публикаций можно выбрать серию сообщений.</p>
+<p>В режиме серии кнопка «Разрыв сообщения» вставляет границу в текущем месте. Разрыв можно выбрать и удалить. Проверяй предупреждения о длине и количестве медиа перед публикацией.</p>
+<h2>Публикация</h2>
+<p>Нажми «Опубликовать». Для обычных сообщений приложение показывает финальную правку перед отправкой. Для рич-сообщений перед отправкой требуется подтверждение. Статус внизу окна показывает ход работы и результат.</p>
+<h2>Настройка каналов</h2>
+<p>Нажми «Настроить каналы…», чтобы добавить профиль: название, токен бота и имя или ID канала. Редактор остаётся открытым, пока окно настроек открыто.</p>
+</article></body></html>"""
+
 class EditorApi:
     """Передать результат редактора вызывающему приложению."""
 
@@ -786,6 +824,7 @@ class EditorApi:
         self.output_path = output_path
         self.status_path = status_path
         self.window = window
+        self.manual_window = None
 
     def finish(self, result: dict) -> None:
         """Передать запрос приложению; настройки не закрывают редактор."""
@@ -838,7 +877,23 @@ class EditorApi:
             return {"type": "draft", "draft": draft}
         return {"type": "content", "html": import_from_file(path)}
 
-    def save_draft(self, draft: dict) -> str | None:
+    def open_manual(self) -> None:
+        """Открыть отдельное окно руководства, не закрывая редактор."""
+        if self.manual_window is not None:
+            try:
+                self.manual_window.show()
+                self.manual_window.restore()
+                return
+            except Exception:
+                self.manual_window = None
+        manual = webview.create_window(
+            "Руководство — Telegram Publisher", html=MANUAL_HTML,
+            width=780, height=780, resizable=True,
+        )
+        self.manual_window = manual
+        manual.events.closed += lambda *_args: setattr(self, "manual_window", None)
+
+    def save_draft(self, draft: dict, filename: str = "Черновик") -> str | None:
         """Сохранить полное состояние редактора в файл .draft."""
         if not isinstance(draft, dict):
             raise ValueError("Не удалось получить данные черновика.")
@@ -851,9 +906,11 @@ class EditorApi:
             or (draft.get("profile_id") is not None and not isinstance(draft.get("profile_id"), str))
         ):
             raise ValueError("Редактор передал некорректные данные черновика.")
+        safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', " ", str(filename))
+        safe_name = re.sub(r"\s+", " ", safe_name).strip(" .")[:100] or "Черновик"
         path = self.window.create_file_dialog(
             webview.FileDialog.SAVE,
-            save_filename="Черновик.draft",
+            save_filename=f"{safe_name}.draft",
             file_types=("Черновики Telegram Publisher (*.draft)",),
         )
         if not path:
@@ -905,7 +962,7 @@ def main() -> None:
     status_path = output_path.with_name("editor-status.json")
     status_path.unlink(missing_ok=True)
     api = EditorApi(output_path, status_path, window)
-    window.expose(api.finish, api.publish, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft)
+    window.expose(api.finish, api.publish, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual)
 
     def initialize() -> None:
         window.evaluate_js(

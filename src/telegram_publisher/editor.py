@@ -706,6 +706,18 @@ async function pollEditorStatus(){
   const update=await window.pywebview.api.get_status();
   if(update){
    if(update.clear){editor.innerHTML='';updateSeriesStatus()}
+   if(Array.isArray(update.profiles)){
+    config.profiles=update.profiles;
+    channelSelect.replaceChildren();
+    for(const profile of update.profiles){
+     const option=document.createElement('option');
+     option.value=profile.profile_id;
+     option.textContent=profile.name+' — '+profile.chat_id;
+     channelSelect.append(option);
+    }
+    channelSelect.value=update.selected_profile_id||'';
+    if(!channelSelect.value&&channelSelect.options.length)channelSelect.selectedIndex=0;
+   }
    if(update.message){
     document.getElementById('status').textContent=update.message;
     if(!update.message.startsWith('Отправка'))document.getElementById('publish').disabled=false;
@@ -729,8 +741,10 @@ class EditorApi:
         self.window = window
 
     def finish(self, result: dict) -> None:
+        """Передать запрос приложению; настройки не закрывают редактор."""
         self.output_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
-        self.window.destroy()
+        if result.get("action") == "cancel":
+            self.window.destroy()
 
     def publish(self, result: dict) -> None:
         """Передать публикацию основному процессу, не закрывая редактор."""

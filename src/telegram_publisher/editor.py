@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import re
 from pathlib import Path
 
 import webview
@@ -58,13 +59,13 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 <footer>
 <div class="publish-options">
 <label for="channel">Канал:</label><select id="channel" aria-label="Канал"></select>
-<label for="mode">Способ:</label><select id="mode" aria-label="Способ публикации">
-<option value="rich">Рич-текст (с форматированием)</option>
-<option value="plain">Обычный текст</option>
+<label for="mode">Способ публикации:</label><select id="mode" aria-label="Способ публикации">
+<option value="rich">Рич-сообщение (полноценное форматирование, размер до 32768 символов)</option>
+<option value="plain">Обычное сообщение (минимальное форматирование, размер до 4096 символов)</option>
 <option value="rich_series">Серия рич-сообщений</option>
 <option value="plain_series">Серия обычных сообщений</option>
 </select>
-<label><input id="series" type="checkbox"> Разбить на серию</label>
+<label><input id="series" type="checkbox"> Разбить на серию постов</label>
 </div>
 <div class="publish-options">
 <button id="manage">Настроить каналы…</button>
@@ -97,7 +98,7 @@ function applyConfig(value){
  seriesCheckbox.checked=Boolean(config.series)||modeSelect.value.endsWith('_series');
  if(!channelSelect.value&&channelSelect.options.length)channelSelect.selectedIndex=0;
  if(config.status)document.getElementById('status').textContent=config.status;
- else if(!channelSelect.options.length)document.getElementById('status').textContent='Сначала настрой канал с помощью кнопки «Настроить каналы…».';
+ else if(!channelSelect.options.length)document.getElementById('status').textContent='Сначала укажите канал для публикации с помощью кнопки «Настроить каналы…».';
  updateModeUI();
  if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
 }
@@ -173,8 +174,8 @@ function insertClipboardHtml(markup){
  updateSeriesStatus();
  if(cleaned.removedImages){
   document.getElementById('status').textContent=cleaned.removedImages===1
-   ?'Изображение из буфера пропущено: не удалось определить его публичный URL. Вставь изображение по ссылке.'
-   :'Изображения из буфера пропущены: не удалось определить их публичные URL. Вставь изображения по ссылкам.';
+   ?'Вставка изображения из буфера пропущено: не удалось определить его публичный URL. Вставьте изображение по ссылке.'
+   :'Вставка изображений из буфера пропущена: не удалось определить их публичные URL. Вставьте изображения по ссылкам.';
  }
 }
 function blobToDataUrl(blob){
@@ -319,15 +320,15 @@ async function setImportedContent(promise){
   editor.innerHTML=html;
   if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
   updateModeUI();
-  status.textContent='Импорт завершён. Проверь содержимое и при необходимости отредактируй его.';
+  status.textContent='Импорт завершён. Проверьте содержимое и при необходимости отредактируйте его.';
   editor.focus();
  }catch(error){status.textContent='Не удалось импортировать: '+(error&&error.message?error.message:String(error));}
 }
 document.getElementById('import-url').onclick=async()=>{
- const url=prompt('Вставь ссылку на публикацию или страницу','https://');
+ const url=prompt('Вставьте ссылку на публикацию или страницу','https://');
  if(!url)return;
  const trimmedUrl=url.trim();
- if(!trimmedUrl.toLowerCase().startsWith('http://')&&!trimmedUrl.toLowerCase().startsWith('https://')){document.getElementById('status').textContent='Укажи полный URL, начинающийся с http:// или https://.';return;}
+ if(!trimmedUrl.toLowerCase().startsWith('http://')&&!trimmedUrl.toLowerCase().startsWith('https://')){document.getElementById('status').textContent='Укажите полный URL, начинающийся с http:// или https://.';return;}
  await setImportedContent(window.pywebview.api.import_url(url.trim()));
 };
 document.getElementById('import-file').onclick=async()=>{
@@ -428,7 +429,7 @@ function insertMediaFromUrl(){
   editor.focus();
   document.execCommand('insertHTML',false,'<p><a href="'+safe+'" data-publication-media-preview="video">'+safe+'</a></p>');
   document.getElementById('status').textContent=isRichMode()
-   ?'Это страница видеосайта, а не прямой видеофайл. Для встроенного видео в рич-сообщении укажи прямой URL файла; в обычном режиме URL используется для предпросмотра.'
+   ?'Это страница сайта видеохостинга, а не адрес видеофайла. Такой способ импорта годится для публикации в виде обычного сообщения, но не рич-сообщения. Для встраивания видео в рич-сообщение укажите прямой URL файла.'
    :'При публикации ссылка на видеосайт будет скрыта, а её URL передан Telegram для предпросмотра.';
   updateSeriesStatus();
   return;
@@ -436,7 +437,7 @@ function insertMediaFromUrl(){
  const path=parsed.pathname+parsed.search+parsed.hash;
  const videoByExtension=/\.(mp4|m4v|mov|webm|mkv)(?:$|[?#])/i.test(path);
  const imageByExtension=/\.(png|jpe?g|gif|webp|avif|bmp)(?:$|[?#])/i.test(path);
- const kind=videoByExtension?'video':imageByExtension?'image':(confirm('Это прямой URL видеофайла?\nНажми «ОК» для видео или «Отмена» для изображения.')?'video':'image');
+ const kind=videoByExtension?'video':imageByExtension?'image':(confirm('Это прямой URL видеофайла?\nНажмите «ОК» для видео или «Отмена» для изображения.')?'video':'image');
  editor.focus();
  const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
  const markup=kind==='image'?'<p><img src="'+safe+'" alt=""></p>':'<p><video controls src="'+safe+'"></video></p>';
@@ -456,7 +457,7 @@ function makeBreak(){
  marker.contentEditable='false';
  marker.draggable=false;
  marker.dataset.postBreak='1';
- marker.textContent='Разрыв сообщения — нажми Del, чтобы удалить';
+ marker.textContent='Разрыв сообщения — нажмите Del, чтобы удалить';
  return marker;
 }
 function partNodes(){
@@ -505,8 +506,8 @@ function updateSeriesStatus(){
  seriesStatus.textContent=parts.map((part,index)=>{
   const prefix=series?'Пост '+(index+1):'Сообщение';
   const notes=[];
-  if(lengths[index]>limit)notes.push('превышен лимит, перенеси часть текста');
-  else if(lengths[index]===limit)notes.push('лимит заполнен, больше сюда не добавляй');
+  if(lengths[index]>limit)notes.push('превышен лимит, перенесите часть текста');
+  else if(lengths[index]===limit)notes.push('лимит заполнен, больше не стоит сюда ничего добавлять');
   if(enforceSingleMedia&&mediaCounts[index]>1)notes.push('допускается не более одного изображения или видео на пост');
   return prefix+': '+lengths[index]+'/'+limit+' символов'+(mediaCounts[index]?' · медиа: '+mediaCounts[index]:'')+(notes.length?' — '+notes.join('; ')+'.':'');
  }).join('\n');
@@ -736,16 +737,16 @@ function currentResult(action){
 }
 document.getElementById('publish').onclick=async()=>{
  if(!channelSelect.value){
-  document.getElementById('status').textContent='Выбери канал или сначала настрой его.';
+  document.getElementById('status').textContent='Выберите канал (кнопка "Настроить каналы")';
   return;
  }
  const text=editor.innerText.trim();
  if(!text&&!editor.querySelector('img,video')){
-  document.getElementById('status').textContent='Добавь текст, изображение или видео перед публикацией.';
+  document.getElementById('status').textContent='Добавьте текст, изображение или видео перед публикацией.';
   return;
  }
  if(!updateSeriesStatus()){
-  document.getElementById('status').textContent='Исправь превышение лимита или оставь не более одного медиа на пост перед публикацией.';
+  document.getElementById('status').textContent='Исправьте превышение лимита или оставьте не более одного медиа на пост перед публикацией.';
   return;
  }
  const usesSendMessage=modeSelect.value==='plain'||modeSelect.value==='plain_series';
@@ -802,19 +803,23 @@ MANUAL_HTML = r"""<!doctype html>
 <style>body{font:16px "Segoe UI",sans-serif;line-height:1.55;color:#222;background:#f4f5f7;margin:0;padding:24px}article{max-width:760px;margin:0 auto;background:#fff;padding:28px 34px;border-radius:8px;box-shadow:0 1px 5px #0001}h1{margin-top:0}h2{margin-top:1.5em;font-size:1.2em}a{color:#1558a6}li{margin:.35em 0}.meta{color:#555}</style>
 </head><body><article>
 <h1>Руководство по Telegram Publisher</h1>
-<p class="meta"><b>Версия:</b> 0.1.0<br><b>Дата сборки:</b> 25.10.2026<br><b>Автор:</b> Анкап-тян</p>
-<p>Сайт: <a href="https://ancapchan.info" target="_blank" rel="noreferrer">https://ancapchan.info</a><br>Телеграм-канал: <a href="https://t.me/ancapchan" target="_blank" rel="noreferrer">https://t.me/ancapchan</a></p>
-<h2>Подготовка публикации</h2>
-<p>Основная область окна — визуальный редактор. Текст можно набирать вручную или вставлять из буфера обмена. Панель инструментов позволяет применять форматирование, создавать списки, заголовки, цитаты, ссылки и таблицы. Кнопка «Медиа по URL» добавляет изображение или видео по публичной ссылке.</p>
+<p class="meta"><b>Версия:</b> 1.0.0<br><b>Дата сборки:</b> 25.10.2026<br><b>Автор:</b> Анкап-тян</p>
+<p>Сайт: <a href="https://ancapchan.info" target="_blank" rel="noreferrer">https://ancapchan.info</a><br>Телеграм-канал: <a href="https://t.me/ancapchan" target="_blank" rel="noreferrer">https://t.me/ancapchan</a><br><p>Донаты: <a href="https://ancapchan.info/donate" target="_blank" rel="noreferrer">https://ancapchan.info/donate</a></p>
+<h2>Задача приложения</h2>
+<p>Telegram Publisher — это инструмент для подготовки и публикации сообщений в Telegram-каналах. Можно настроить несколько телеграм-каналов и выбирать, каие посты куда публиковать. Доступны различные режимы публикации (обычные сообщения и рич-сообщения) и разбивка текста на серию постов.</p>
 <h2>Импорт и черновики</h2>
-<ul><li><b>Импортировать по ссылке</b> — загрузить публикацию со страницы по URL.</li><li><b>Открыть файл</b> — импортировать TXT, HTML, Markdown, DOCX или ODT либо восстановить черновик .draft.</li><li><b>Сохранить черновик</b> — сохранить форматирование, режим публикации, выбранный канал и положение разрывов серии в файле .draft.</li></ul>
+<p>Пост можно создавать непосредственно в редакторе, вставить из буфера обмена, загрузить из файла или импортировать с веб-страницы по URL. Поддерживаются форматы TXT, HTML, Markdown, DOCX и ODT. Черновик поста можно сохранить в файле .draft, а позже загрузить для дальнейшего редактирования</p>
+<ul><li><b>Импортировать по ссылке</b> — загрузить публикацию со страницы по URL.</li><li><b>Открыть файл</b> — импортировать TXT, HTML, Markdown, DOCX или ODT либо восстановить черновик .draft.</li><li><b>Сохранить черновик</b> — сохранить форматирование, режим публикации, выбранный канал и положение разрывов для серии постов в файле .draft.</li></ul>
+<h2>Подготовка публикации</h2>
+<p>Основная область окна — визуальный редактор. Панель инструментов позволяет применять форматирование, создавать списки, заголовки, цитаты, ссылки и таблицы. Кнопка «Медиа по URL» добавляет изображение или видео по публичной ссылке. В зависимости от выбранного способа публикации доступны разные инструменты редактирования. Если выбранный способ публикации не позволяет сохранить используемое форматирование, будут использоваться альтернативные варианты форматирования.</p>
 <h2>Выбор способа публикации</h2>
-<p>В нижней части окна выбери канал и способ публикации. Обычный текст отправляется без форматирования; рич-текст сохраняет поддерживаемое оформление. Для длинных публикаций можно выбрать серию сообщений.</p>
+<p>Обычные сообщения имеют минимальное форматирование: жирный шрифт, курсив, подчёркивание, зачёркивание, гиперссылки, цитаты. Можно вставить одну картинку или видео, для этого пользуется скрытая ссылка, которую телеграм преобразует в превью. Предельный размер такого сообщения - 4096 символов.</p>
+<p>Рич-сообщения позволяют более сложное форматирование. Для длинных публикаций можно выбрать серию сообщений.</p>
 <p>В режиме серии кнопка «Разрыв сообщения» вставляет границу в текущем месте. Разрыв можно выбрать и удалить. Проверяй предупреждения о длине и количестве медиа перед публикацией.</p>
-<h2>Публикация</h2>
-<p>Нажми «Опубликовать». Для обычных сообщений приложение показывает финальную правку перед отправкой. Для рич-сообщений перед отправкой требуется подтверждение. Статус внизу окна показывает ход работы и результат.</p>
 <h2>Настройка каналов</h2>
-<p>Нажми «Настроить каналы…», чтобы добавить профиль: название, токен бота и имя или ID канала. Редактор остаётся открытым, пока окно настроек открыто.</p>
+<p>В нижней части окна по кнопке «Настроить каналы...» можно добавить один или несколько профилей каналов, указав произвольное имя профиля, идентификатор канала и токен бота, имеющего административные полномочия в канале - публикация будет осуществляться через этого бота.</p>
+<h2>Публикация</h2>
+<p>По нажатию кнопки «Опубликовать» в режиме публикации обычных сообщений предлагается предпросмотр, где приложение показывает, какой именно текст будет передан в телеграм. В это время можно внести финальные правки, и лишь затем подтвердить или отменить публикацию. Для рич-сообщений предпросмотра не происходит. Статус внизу окна показывает ход работы и результат.</p>
 </article></body></html>"""
 
 class EditorApi:

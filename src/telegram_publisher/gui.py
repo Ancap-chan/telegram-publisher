@@ -608,15 +608,15 @@ class PublisherWindow:
         if series:
             if self.image_path:
                 return [
-                    ("Подпись + продолжение", "caption"),
-                    ("Обычный текст + изображение", "media_text"),
-                    ("Рич-текст + изображение", "rich"),
+                    ("Картинка + подпись", "caption"),
+                    ("Обычное сообщение + изображение", "media_text"),
+                    ("Рич-текст", "rich"),
                     ("Серия обычных сообщений", "plain_series"),
                     ("Серия рич-сообщений", "rich_series"),
                 ]
             return [
                 ("Обычные сообщения", "plain_series"),
-                ("Рич-текст", "rich"),
+                ("Рич-сообщение", "rich"),
                 ("Серия рич-сообщений", "rich_series"),
             ]
 
@@ -624,19 +624,19 @@ class PublisherWindow:
             if length <= CAPTION_LIMIT:
                 return [
                     ("Подпись к изображению", "caption"),
-                    ("Обычный текст + изображение", "media_text"),
-                    ("Рич-текст + изображение", "rich"),
+                    ("Обычное сообщение + изображение", "media_text"),
+                    ("Рич-сообщение", "rich"),
                 ]
             if length <= TEXT_LIMIT:
                 return [
-                    ("Обычный текст + изображение", "media_text"),
-                    ("Рич-текст + изображение", "rich"),
+                    ("Обычное сообщение + изображение", "media_text"),
+                    ("Рич-сообщение", "rich"),
                 ]
-            return [("Рич-текст + изображение", "rich")]
+            return [("Рич-сообщение", "rich")]
 
         if length <= TEXT_LIMIT:
-            return [("Обычный текст", "plain"), ("Рич-текст", "rich")]
-        return [("Рич-текст", "rich")]
+            return [("Обычное сообщение", "plain"), ("Рич-сообщение", "rich")]
+        return [("Рич-сообщение", "rich")]
 
     def _update_publication_options(self) -> None:
         content = self.text.get("1.0", "end-1c").strip()
@@ -658,13 +658,13 @@ class PublisherWindow:
 
         if len(content) > RICH_TEXT_LIMIT and not self.series_var.get():
             hint = (
-                "Текст превышает 32768 символов. Включи серию публикаций, "
+                "Текст превышает 32768 символов. Используйте публикацию в виде серии постов, "
                 "чтобы разбить его на несколько сообщений."
             )
         elif self.mode_values.get(self.mode_combo.get()) in {"rich", "rich_series"}:
             hint = (
-                "Визуальный редактор сохраняет форматирование для режима рич-текста. "
-                "Для обычного текста оформление преобразуется в текст без форматирования."
+                "Визуальный редактор сохраняет форматирование для режима рич-сообщения. "
+                "Для обычного текста оформление преобразуется в текст с минимальным форматированием."
             )
         elif self.image_path and len(content) <= CAPTION_LIMIT:
             hint = "По умолчанию текст станет подписью к изображению."
@@ -674,7 +674,7 @@ class PublisherWindow:
                 "через встроенное медиа рич-сообщения."
             )
         else:
-            hint = "Обычные сообщения ограничены 4096 символами, подпись к фото — 1024."
+            hint = "Обычные сообщения ограничены 4096 символами, подпись к изображению — 1024."
         self.mode_hint.configure(text=hint)
 
     def _default_mode(self, length: int) -> str:
@@ -699,13 +699,13 @@ class PublisherWindow:
         )
         if profile is None or not profile.token or not profile.chat_id:
             if from_editor:
-                self._write_editor_status("Настройки канала не заполнены. Проверь профиль и токен.")
+                self._write_editor_status("Настройки канала не заполнены. Проверьте профиль и токен.")
                 self.publishing_from_editor = False
                 self.finalized_plain_parts = None
             else:
                 messagebox.showerror(
                     "Настройки не заполнены",
-                    "Добавь профиль канала через кнопку «Настроить каналы…».",
+                    "Добавьте профиль канала через кнопку «Настроить каналы…».",
                     parent=self.root,
                 )
             return
@@ -721,16 +721,16 @@ class PublisherWindow:
         content = self.html_content if from_editor or mode in {"rich", "rich_series", "media_text", "plain_prepared"} else plain_content
         if not plain_content and not self.image_path and not content.strip():
             if from_editor:
-                self._write_editor_status("Добавь текст, изображение или видео перед публикацией.")
+                self._write_editor_status("Добавьте текст, изображение или видео перед публикацией.")
                 self.publishing_from_editor = False
                 self.finalized_plain_parts = None
             else:
-                messagebox.showwarning("Пустая публикация", "Добавь текст или выбери изображение.")
+                messagebox.showwarning("Пустая публикация", "Добавьте текст или выберите изображение.")
             return
 
         series = self.series_var.get()
         if len(plain_content) > RICH_TEXT_LIMIT and not series:
-            warning = "Для текста длиннее 32768 символов включи серию публикаций."
+            warning = "Для текста длиннее 32768 символов используйте публикацию в виде серии постов."
             if from_editor:
                 self._write_editor_status(warning)
                 self.publishing_from_editor = False
@@ -876,7 +876,7 @@ class PublisherWindow:
             frame,
             text=(
                 f"Успешно отправлено ранее: {self.pending_sent_count}. Ниже — оставшиеся сообщения. "
-                "Выбери вкладку, исправь текст или удали сообщение. Перед повторной отправкой "
+                "Выберите вкладку, исправьте текст или удалите сообщение. Перед повторной отправкой "
                 f"будет выдержана пауза не менее {math.ceil(self.pending_retry_after)} сек."
             ),
             wraplength=850,
@@ -919,7 +919,7 @@ class PublisherWindow:
             messages = [box.get("1.0", "end-1c") for box in editors]
             messages = [message for message in messages if message.strip()]
             if not messages:
-                messagebox.showwarning("Пустая очередь", "Добавь текст или удали окно досылки.", parent=dialog)
+                messagebox.showwarning("Пустая очередь", "Добавьте текст или удалите окно досылки.", parent=dialog)
                 return
             self.pending_messages = []
             self.resuming_pending = True

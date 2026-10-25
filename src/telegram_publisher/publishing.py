@@ -267,7 +267,7 @@ def _sanitize_plain_html(content: str, *, preserve_media: bool = False) -> str:
             node.unwrap()
             continue
         if node.name in {"img", "video"}:
-            source = str(node.get("src", "")).strip()
+            source = str(node.get("src") or (node.find("source").get("src") if node.find("source") else "")).strip()
             if not source.lower().startswith(("https://", "http://", "data:image/")):
                 node.decompose()
             else:

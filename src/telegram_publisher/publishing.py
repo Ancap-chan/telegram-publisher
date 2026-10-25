@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup, Comment, Tag
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from telegram import Bot, LinkPreviewOptions
+from telegram import Bot, InputMediaPhoto, InputMediaVideo, LinkPreviewOptions
 from telegram.error import RetryAfter
 
 
@@ -123,6 +123,8 @@ def estimate_message_count(
             if image_path and len(text) > CAPTION_LIMIT
             else 0
         )
+    if mode == "album":
+        return len(re.findall(r"<(?:img|video)\b", text, re.IGNORECASE))
     if mode == "plain_series":
         return len(split_text(text, TEXT_LIMIT))
     if mode == "rich_series" or (series and mode in {"rich", "media_text"}):
@@ -265,7 +267,10 @@ def _sanitize_plain_html(content: str, *, preserve_media: bool = False) -> str:
             node.unwrap()
             continue
         if node.name in {"img", "video"}:
-            source = str(node.get("src", "")).strip()
+            source_node = node.find("source") if node.name == "video" else None
+            source = str(
+                node.get("src") or (source_node.get("src") if source_node else "")
+            ).strip()
             if not source.lower().startswith(("https://", "http://", "data:image/")):
                 node.decompose()
             else:
@@ -369,6 +374,48 @@ def _rich_payload(
         rich_message["_upload_files"] = upload_files
     return rich_message
 
+
+
+def _prepare_album_media(content: str, image_path: str | None = None) -> list[InputMediaPhoto | InputMediaVideo]:
+    """Проверить медиагруппу и подготовить её элементы для Telegram."""
+    if image_path:
+        raise ValueError("Для альбома добавляйте изображения и видео через публичные URL в редакторе.")
+
+    soup = BeautifulSoup(content, "html.parser")
+    media_nodes = list(soup.find_all(["img", "video"]))
+    if not 2 <= len(media_nodes) <= 10:
+        raise ValueError("Для альбома требуется от 2 до 10 изображений или видео.")
+
+    sources: list[tuple[str, str]] = []
+    for index, node in enumerate(media_nodes, start=1):
+        source_node = node.find("source") if node.name == "video" else None
+        source = str(node.get("src") or (source_node.get("src") if source_node else "")).strip()
+        if not re.match(r"^https?://[^/\s]+", source, re.IGNORECASE):
+            raise ValueError(
+                f"Медиа №{index} не имеет прямого публичного HTTP(S)-адреса. "
+                "Для альбома используйте прямые URL файлов."
+            )
+        media_type = "video" if node.name == "video" else "photo"
+        sources.append((media_type, source))
+        node.decompose()
+
+    caption_html = _sanitize_plain_html(soup.decode_contents())
+    caption_text = _plain_text_from_html(caption_html)
+    if len(caption_text) > CAPTION_LIMIT:
+        raise ValueError(
+            f"Подпись к альбому ограничена {CAPTION_LIMIT} символами. "
+            "Сократите подпись или выберите другой способ публикации."
+        )
+
+    media: list[InputMediaPhoto | InputMediaVideo] = []
+    for index, (media_type, source) in enumerate(sources):
+        item_type = InputMediaVideo if media_type == "video" else InputMediaPhoto
+        kwargs: dict[str, object] = {"media": source}
+        if index == 0 and caption_text:
+            kwargs["caption"] = caption_html
+            kwargs["parse_mode"] = "HTML"
+        media.append(item_type(**kwargs))
+    return media
 
 
 def _plain_media_payload(content: str, image_path: str | None = None) -> dict | None:
@@ -527,8 +574,14 @@ async def send_publication(
     text = text.strip()
     requested_mode = mode
     parts = [part.strip() for part in parts or [] if part.strip()]
+    if mode == "album":
+        media = _prepare_album_media(text, image_path)
+        async with Bot(token=token) as bot:
+            await bot.send_media_group(chat_id=chat_id, media=media)
+        return len(media)
+
     if not text and not image_path:
-        raise ValueError("Добавь текст или выбери изображение для публикации.")
+        raise ValueError("Добавьте текст или выберите изображение для публикации.")
 
     if mode == "auto":
         if image_path and len(text) <= CAPTION_LIMIT:

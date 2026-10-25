@@ -42,7 +42,7 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 </head>
 <body>
 <header>
-<div class="toolbar-row file-tools"><button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button><button id="save-draft">Сохранить черновик…</button></div>
+<div class="toolbar-row file-tools"><button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button><button id="save-draft">Сохранить черновик…</button><button id="manual" style="margin-left:auto">Руководство</button></div>
 <div class="toolbar-row edit-tools"><button data-cmd="bold"><b>Жирный</b></button><button data-cmd="italic"><i>Курсив</i></button><button data-cmd="underline"><u>Подчёркнутый</u></button><button data-cmd="strikeThrough"><s>Зачёркнутый</s></button>
 <button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button class="heading-tool" data-cmd="formatBlock" data-value="h1" data-rich-only>H1</button><button class="heading-tool" data-cmd="formatBlock" data-value="h2" data-rich-only>H2</button><button class="heading-tool" data-cmd="formatBlock" data-value="h3" data-rich-only>H3</button><button class="heading-tool" data-cmd="formatBlock" data-value="h4" data-rich-only>H4</button><button class="heading-tool" data-cmd="formatBlock" data-value="h5" data-rich-only>H5</button><button class="heading-tool" data-cmd="formatBlock" data-value="h6" data-rich-only>H6</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
 <button id="link">Ссылка</button><button id="media">Медиа по URL</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span></div>
@@ -357,6 +357,18 @@ function currentDraft(){
   profile_id:channelSelect.value||null
  };
 }
+function draftFilename(){
+ const heading=editor.querySelector('h1,h2,h3,h4,h5,h6');
+ let title=heading?(heading.innerText||heading.textContent||'').trim():'';
+ if(!title){
+  const clone=editor.cloneNode(true);
+  clone.querySelectorAll('.series-break').forEach(node=>node.remove());
+  const text=(clone.innerText||clone.textContent||'').replace(/\s+/g,' ').trim();
+  title=text.split(' ').filter(Boolean).slice(0,3).join(' ');
+ }
+ title=title.replace(/[<>:"/\\|?*\x00-\x1f]/g,' ').replace(/\s+/g,' ').trim().replace(/[. ]+$/,'');
+ return (title||'Черновик').slice(0,100);
+}
 function applyDraft(draft){
  if(!draft||draft.format!=='telegram-publisher-draft'||draft.version!==1||
     typeof draft.html!=='string'||
@@ -374,11 +386,15 @@ function applyDraft(draft){
 document.getElementById('save-draft').onclick=async()=>{
  const status=document.getElementById('status');
  try{
-  const saved=await window.pywebview.api.save_draft(currentDraft());
+  const saved=await window.pywebview.api.save_draft(currentDraft(),draftFilename());
   if(saved)status.textContent='Черновик сохранён: '+saved;
  }catch(error){
   status.textContent='Не удалось сохранить черновик: '+(error&&error.message?error.message:String(error));
  }
+};
+document.getElementById('manual').onclick=async()=>{
+ try{await window.pywebview.api.open_manual()}
+ catch(error){document.getElementById('status').textContent='Не удалось открыть руководство: '+(error&&error.message?error.message:String(error));}
 };
 document.querySelectorAll('[data-cmd]').forEach(button=>button.addEventListener('click',()=>{
  editor.focus();const cmd=button.dataset.cmd;document.execCommand(cmd,false,button.dataset.value||null);
@@ -891,8 +907,8 @@ class EditorApi:
             or (draft.get("profile_id") is not None and not isinstance(draft.get("profile_id"), str))
         ):
             raise ValueError("Редактор передал некорректные данные черновика.")
-        safe_name = re.sub(r'[<>:"/\\\\|?*\\x00-\\x1f]', " ", str(filename))
-        safe_name = re.sub(r"\\s+", " ", safe_name).strip(" .")[:100] or "Черновик"
+        safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', " ", str(filename))
+        safe_name = re.sub(r"\s+", " ", safe_name).strip(" .")[:100] or "Черновик"
         path = self.window.create_file_dialog(
             webview.FileDialog.SAVE,
             save_filename=f"{safe_name}.draft",

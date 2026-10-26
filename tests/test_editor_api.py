@@ -104,7 +104,7 @@ def test_editor_api_publishes_rich_content_in_background(tmp_path, monkeypatch):
 
     assert captured["request"].profile == profile
     assert captured["request"].content == "<p>Текст</p>"
-    assert api.get_status() == {"message": "Опубликовано. Отправлено сообщений: 2", "clear": True}
+    assert api.get_status() == {"message": "Опубликовано. Отправлено сообщений: 2"}
 
 
 @pytest.mark.parametrize("mode", ["plain", "plain_series"])
@@ -142,7 +142,7 @@ def test_editor_api_publishes_plain_content_without_review_flow(monkeypatch, mod
     assert captured["request"].content == "<p>Текст</p>"
     assert captured["request"].mode == mode
     assert captured["request"].parts == (["<p>Часть 1</p>", "<p>Часть 2</p>"] if mode == "plain_series" else [])
-    assert api.get_status() == {"message": "Опубликовано. Отправлено сообщений: 2", "clear": True}
+    assert api.get_status() == {"message": "Опубликовано. Отправлено сообщений: 2"}
 
 
 def test_editor_api_rejects_publish_when_profile_is_missing(tmp_path, monkeypatch):
@@ -199,7 +199,6 @@ def test_editor_api_stores_partial_publication_and_exposes_retry(tmp_path, monke
     assert requests[1].initial_delay == 5
     assert api.get_status() == {
         "message": "Опубликовано. Отправлено сообщений: 4",
-        "clear": True,
     }
     assert api._pending_messages == []
 

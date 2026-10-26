@@ -890,7 +890,6 @@ async function pollEditorStatus(){
  try{
   const update=await window.pywebview.api.get_status();
   if(update){
-   if(update.clear){editor.innerHTML='';updateSeriesStatus()}
    if(Array.isArray(update.profiles)){
     config.profiles=update.profiles;
     channelSelect.replaceChildren();
@@ -1074,16 +1073,16 @@ class EditorApi:
                 self._pending_profile = None
                 self._pending_sent_count = 0
                 self._pending_retry_after = 0.0
-                self._set_status(f"Опубликовано. Отправлено сообщений: {total_sent}", clear=True)
+                self._set_status(f"Опубликовано. Отправлено сообщений: {total_sent}")
             finally:
                 self._publishing = False
 
         threading.Thread(target=run_publication, daemon=True).start()
 
-    def _set_status(self, message: str, clear: bool = False, can_retry: bool = False) -> None:
+    def _set_status(self, message: str, can_retry: bool = False) -> None:
         """Сохранить однократное уведомление для редактора."""
         with self._status_lock:
-            payload = {"message": message, "clear": clear}
+            payload = {"message": message}
             if can_retry:
                 payload["can_retry"] = True
             self._status_update = payload

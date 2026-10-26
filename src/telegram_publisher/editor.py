@@ -978,6 +978,41 @@ class EditorApi:
         )
         return str(destination)
 
+    def select_media_files(self) -> list[dict[str, str]]:
+        """Выбрать локальные изображения и видео для совместимых способов публикации."""
+        paths = self.window.create_file_dialog(
+            webview.FileDialog.OPEN,
+            allow_multiple=True,
+            file_types=(
+                "Изображения и видео (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.avif;*.mp4;*.m4v;*.mov;*.webm;*.mkv)",
+                "Изображения (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.avif)",
+                "Видео (*.mp4;*.m4v;*.mov;*.webm;*.mkv)",
+                "Все файлы (*.*)",
+            ),
+        )
+        if not paths:
+            return []
+        if isinstance(paths, (str, Path)):
+            paths = [paths]
+        image_extensions = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif"}
+        video_extensions = {".mp4", ".m4v", ".mov", ".webm", ".mkv"}
+        selected: list[dict[str, str]] = []
+        for item in paths:
+            path = Path(item).resolve()
+            suffix = path.suffix.lower()
+            if suffix not in image_extensions | video_extensions:
+                continue
+            if not path.is_file():
+                continue
+            selected.append(
+                {
+                    "path": str(path),
+                    "uri": path.as_uri(),
+                    "type": "video" if suffix in video_extensions else "photo",
+                }
+            )
+        return selected
+
     def import_file(self) -> str | None:
         """Предложить выбрать локальный файл и преобразовать его в HTML."""
         paths = self.window.create_file_dialog(
@@ -1012,7 +1047,7 @@ def main() -> None:
     status_path = output_path.with_name("editor-status.json")
     status_path.unlink(missing_ok=True)
     api = EditorApi(output_path, status_path, window)
-    window.expose(api.finish, api.publish, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual)
+    window.expose(api.finish, api.publish, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual, api.select_media_files)
 
     def initialize() -> None:
         window.evaluate_js(

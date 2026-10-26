@@ -7,6 +7,7 @@ import json
 import mimetypes
 import sys
 import re
+import threading
 from pathlib import Path
 
 import webview
@@ -15,6 +16,8 @@ from . import __version__
 
 from .importer import import_from_file, import_from_url
 from .profiles import ChannelProfile, delete_profile, load_profiles, save_profile
+from .controller import PublicationController, PublicationRequest
+from .publishing import PartialPublicationError
 
 
 EDITOR_HTML = r"""<!doctype html>
@@ -942,6 +945,9 @@ class EditorApi:
         self.status_path = status_path
         self.window = window
         self.manual_window = None
+        self._status_lock = threading.Lock()
+        self._status_update: dict | None = None
+        self._publishing = False
 
     @staticmethod
     def _public_profile(profile: ChannelProfile) -> dict[str, str]:
@@ -983,11 +989,57 @@ class EditorApi:
         self.output_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
 
     def publish(self, result: dict) -> None:
-        """Передать публикацию основному процессу, не закрывая редактор."""
-        self.output_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        """Опубликовать рич-сообщение или альбом из визуального редактора."""
+        mode = str(result.get("mode", "rich"))
+        if mode in {"plain", "plain_series"}:
+            self.finish(result)
+            return
+        if mode not in {"rich", "rich_series", "album", "album_series", "media_text"}:
+            raise ValueError("Неизвестный способ публикации.")
+        if self._publishing:
+            raise ValueError("Публикация уже выполняется.")
+        profile_id = result.get("profile_id")
+        profile = next((item for item in load_profiles() if item.profile_id == profile_id), None)
+        if profile is None or not profile.token or not profile.chat_id:
+            raise ValueError("Настройки выбранного канала не заполнены. Проверьте профиль и токен.")
+        content = str(result.get("html", "")).strip()
+        raw_parts = result.get("parts")
+        parts = [str(part) for part in raw_parts] if isinstance(raw_parts, list) else None
+        if not content and not parts:
+            raise ValueError("Добавьте текст, изображение или видео перед публикацией.")
+        request = PublicationRequest(profile, content, None, mode, bool(result.get("series", False)), parts)
+        self._publishing = True
+        self._set_status("Отправка публикации…")
+
+        def run_publication() -> None:
+            try:
+                count = PublicationController().publish(request)
+            except PartialPublicationError as error:
+                self._set_status(
+                    f"Часть публикации отправлена: {error.sent_count}. Осталось сообщений: {len(error.pending_messages)}. "
+                    "Повторную отправку можно будет настроить на следующем этапе."
+                )
+            except Exception as error:
+                self._set_status(f"Ошибка публикации: {error}")
+            else:
+                self._set_status(f"Опубликовано. Отправлено сообщений: {count}", clear=True)
+            finally:
+                self._publishing = False
+
+        threading.Thread(target=run_publication, daemon=True).start()
+
+    def _set_status(self, message: str, clear: bool = False) -> None:
+        """Сохранить однократное уведомление для редактора."""
+        with self._status_lock:
+            self._status_update = {"message": message, "clear": clear}
 
     def get_status(self) -> dict | None:
-        """Получить однократное уведомление от основного процесса."""
+        """Получить уведомление о публикации или от старого управляющего процесса."""
+        with self._status_lock:
+            if self._status_update is not None:
+                payload = self._status_update
+                self._status_update = None
+                return payload
         try:
             if not self.status_path.is_file():
                 return None

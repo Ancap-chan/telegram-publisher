@@ -906,7 +906,7 @@ async function pollEditorStatus(){
    }
    const retryButton=document.getElementById('retry-pending');
    retryButton.hidden=!update.can_retry;
-   retryButton.disabled=Boolean(update.message&&update.message.startsWith('Отправка'));
+   retryButton.disabled=Boolean(update.message&&(update.message.startsWith('Отправка')||update.message.startsWith('Повторная отправка')));
    if(update.message){
     document.getElementById('status').textContent=update.message;
     if(!update.message.startsWith('Отправка')&&!update.message.startsWith('Повторная отправка')){

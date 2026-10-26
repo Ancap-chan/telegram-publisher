@@ -1042,7 +1042,7 @@ class EditorApi:
             raise ValueError("Нет сообщений, ожидающих повторной отправки.")
         request = PublicationRequest(
             profile=self._pending_profile,
-            content="",
+            content=self._pending_messages[0],
             image_path=None,
             mode="plain_prepared",
             series=True,

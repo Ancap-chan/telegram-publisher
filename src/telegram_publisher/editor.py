@@ -789,6 +789,10 @@ document.getElementById('publish').onclick=async()=>{
   return;
  }
  const text=editor.innerText.trim();
+ if(editor.querySelector('[data-local-file]')&&!['rich','rich_series','album'].includes(modeSelect.value)){
+  document.getElementById('status').textContent='Локальные медиа нельзя отправить в обычном формате. Замените их публичными URL или выберите рич-сообщение либо альбом.';
+  return;
+ }
  if(!text&&!editor.querySelector('img,video')){
   document.getElementById('status').textContent='Добавьте текст, изображение или видео перед публикацией.';
   return;

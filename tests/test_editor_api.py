@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 import telegram_publisher.editor as editor_module
 from telegram_publisher.editor import EditorApi
 from telegram_publisher.profiles import ChannelProfile
@@ -117,3 +119,54 @@ def test_editor_api_deletes_profile_and_returns_remaining_profiles(tmp_path, mon
 
     assert api.delete_channel_profile("profile-1") == []
     assert deleted == ["profile-1"]
+
+def test_editor_api_publishes_rich_content_in_background(tmp_path, monkeypatch):
+    profile = ChannelProfile("profile-1", "Канал", "@channel", "token")
+    captured = {}
+    monkeypatch.setattr(editor_module, "load_profiles", lambda: [profile])
+
+    class ImmediateThread:
+        def __init__(self, target, daemon=False):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    class FakeController:
+        def publish(self, request):
+            captured["request"] = request
+            return 2
+
+    monkeypatch.setattr(editor_module.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(editor_module, "PublicationController", FakeController)
+    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+
+    api.publish({
+        "action": "publish",
+        "html": "<p>Текст</p>",
+        "mode": "rich",
+        "profile_id": "profile-1",
+        "series": False,
+    })
+
+    assert captured["request"].profile == profile
+    assert captured["request"].content == "<p>Текст</p>"
+    assert api.get_status() == {"message": "Опубликовано. Отправлено сообщений: 2", "clear": True}
+
+
+def test_editor_api_keeps_plain_messages_on_legacy_review_flow(tmp_path):
+    output_path = tmp_path / "result.json"
+    api = EditorApi(output_path, tmp_path / "status.json", FakeWindow())
+    request = {"action": "review_publish", "html": "<p>Текст</p>", "mode": "plain"}
+
+    api.publish(request)
+
+    assert json.loads(output_path.read_text(encoding="utf-8")) == request
+
+
+def test_editor_api_rejects_publish_when_profile_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(editor_module, "load_profiles", lambda: [])
+    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+
+    with pytest.raises(ValueError, match="Настройки выбранного канала"):
+        api.publish({"mode": "rich", "html": "<p>Текст</p>", "profile_id": "missing"})

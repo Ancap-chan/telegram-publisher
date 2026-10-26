@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import base64
 import json
-import mimetypesimport re
+import mimetypes
+import re
 import threading
 from pathlib import Path
 

@@ -808,12 +808,11 @@ document.getElementById('publish').onclick=async()=>{
   document.getElementById('status').textContent=isAlbumMode()?'Для альбома добавьте от 2 до 10 медиа и сократите подпись до 1024 символов.':'Исправьте превышение лимита или оставьте не более одного медиа на пост перед публикацией.';
   return;
  }
- const usesSendMessage=modeSelect.value==='plain'||modeSelect.value==='plain_series';
- if(!usesSendMessage&&!confirm('Опубликовать пост в выбранном канале?'))return;
+ if(!confirm('Опубликовать пост в выбранном канале?'))return;
  const publishButton=document.getElementById('publish');
  publishButton.disabled=true;
- document.getElementById('status').textContent=usesSendMessage?'Отправка: ожидается финальная правка…':'Подготовка публикации…';
- try{await window.pywebview.api.publish(currentResult(usesSendMessage?'review_publish':'publish'));}
+ document.getElementById('status').textContent='Подготовка публикации…';
+ try{await window.pywebview.api.publish(currentResult('publish'));}
  catch(error){
   publishButton.disabled=false;
   document.getElementById('status').textContent='Не удалось начать публикацию: '+(error&&error.message?error.message:String(error));
@@ -931,7 +930,7 @@ MANUAL_HTML = r"""<!doctype html>
 <h2>Настройка каналов</h2>
 <p>В нижней части окна нажмите «Настроить каналы…», чтобы добавить один или несколько профилей. Для каждого профиля укажите название, идентификатор канала и токен бота, которому разрешено публиковать сообщения в этом канале. Публикации отправляются от имени бота.</p>
 <h2>Публикация</h2>
-<p>После нажатия «Опубликовать» для обычных сообщений открывается окно финальной правки с текстом, который будет передан Telegram. После редактирования публикацию можно подтвердить или отменить. Для рич-сообщений отдельное окно финальной правки не открывается. Строка состояния внизу редактора показывает ход работы и результат.</p>
+<p>Перед публикацией проверьте итоговый вид поста непосредственно в визуальном редакторе и нажмите «Опубликовать». Для всех способов публикации приложение запрашивает подтверждение. Строка состояния внизу редактора показывает ход работы и результат.</p>
 <hr>
 <h2>История версий</h2>
 <ul><li><b>1.1.0</b> — добавлена публикация альбомов.</li><li><b>1.0.0</b> — базовый функционал приложения: визуальный редактор, импорт публикаций, черновики, профили каналов, обычные и рич-сообщения и их серии.</li></ul>
@@ -989,12 +988,9 @@ class EditorApi:
         self.output_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
 
     def publish(self, result: dict) -> None:
-        """Опубликовать рич-сообщение или альбом из визуального редактора."""
+        """Опубликовать сообщение выбранным способом прямо из визуального редактора."""
         mode = str(result.get("mode", "rich"))
-        if mode in {"plain", "plain_series"}:
-            self.finish(result)
-            return
-        if mode not in {"rich", "rich_series", "album", "album_series", "media_text"}:
+        if mode not in {"plain", "plain_series", "rich", "rich_series", "album", "album_series", "media_text"}:
             raise ValueError("Неизвестный способ публикации.")
         if self._publishing:
             raise ValueError("Публикация уже выполняется.")

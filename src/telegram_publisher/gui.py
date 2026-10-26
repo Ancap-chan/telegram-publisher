@@ -25,10 +25,10 @@ from telegram_publisher.publishing import (
     RICH_TEXT_LIMIT,
     TEXT_LIMIT,
     estimate_message_count,
-    publish_sync,
     prepare_plain_messages,
     PartialPublicationError,
 )
+from telegram_publisher.controller import PublicationController, PublicationRequest
 
 
 class _PreviewTextParser(__import__("html.parser", fromlist=["HTMLParser"]).HTMLParser):
@@ -759,17 +759,18 @@ class PublisherWindow:
         parts: list[str] | None = None,
         initial_delay: float = 0,
     ) -> None:
+        """Выполнить запрос через прикладной контроллер вне главного потока."""
+        request = PublicationRequest(
+            profile=profile,
+            content=content,
+            image_path=image_path,
+            mode=mode,
+            series=series,
+            parts=parts,
+            initial_delay=initial_delay,
+        )
         try:
-            count = publish_sync(
-                profile.token,
-                profile.chat_id,
-                content,
-                image_path,
-                mode,
-                series,
-                parts=parts,
-                initial_delay=initial_delay,
-            )
+            count = PublicationController().publish(request)
         except PartialPublicationError as error:
             self.root.after(0, self._handle_partial_publication, error)
             return

@@ -632,3 +632,51 @@ def test_album_prepares_local_photo_and_video(tmp_path) -> None:
             else:
                 assert uploaded.read() == expected
         assert media[0].caption == "Общая подпись"
+
+
+def test_album_series_sends_each_album_with_its_own_caption(monkeypatch) -> None:
+    import asyncio
+    from telegram_publisher import publishing
+
+    calls = []
+
+    class FakeBot:
+        def __init__(self, token):
+            self.token = token
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def send_media_group(self, **kwargs):
+            calls.append(kwargs)
+
+    async def no_wait(_delay):
+        return None
+
+    monkeypatch.setattr(publishing, "Bot", FakeBot)
+    monkeypatch.setattr(publishing.asyncio, "sleep", no_wait)
+    first = '<p>Первая подпись</p><img src="https://example.org/1.jpg"><img src="https://example.org/2.jpg">'
+    second = '<p>Вторая подпись</p><img src="https://example.org/3.jpg"><img src="https://example.org/4.jpg">'
+    sent = asyncio.run(publishing.send_publication(
+        "test-token", "@test-channel", first + second,
+        mode="album_series", parts=[first, second],
+    ))
+
+    assert sent == 4
+    assert len(calls) == 2
+    assert [len(call["media"]) for call in calls] == [2, 2]
+    assert calls[0]["media"][0].caption == "Первая подпись"
+    assert calls[1]["media"][0].caption == "Вторая подпись"
+
+
+def test_album_series_message_count_sums_media_in_each_album() -> None:
+    from telegram_publisher.publishing import estimate_message_count
+
+    parts = [
+        '<p>Первая подпись</p><img src="https://example.org/1.jpg"><img src="https://example.org/2.jpg">',
+        '<p>Вторая подпись</p><img src="https://example.org/3.jpg"><img src="https://example.org/4.jpg">',
+    ]
+    assert estimate_message_count("".join(parts), None, "album_series") == 4

@@ -48,7 +48,7 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 <div class="toolbar-row file-tools"><button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button><button id="save-draft">Сохранить черновик…</button><button id="manual" style="margin-left:auto">Руководство</button></div>
 <div class="toolbar-row edit-tools"><button data-cmd="bold"><b>Жирный</b></button><button data-cmd="italic"><i>Курсив</i></button><button data-cmd="underline"><u>Подчёркнутый</u></button><button data-cmd="strikeThrough"><s>Зачёркнутый</s></button>
 <button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button class="heading-tool" data-cmd="formatBlock" data-value="h1" data-rich-only>H1</button><button class="heading-tool" data-cmd="formatBlock" data-value="h2" data-rich-only>H2</button><button class="heading-tool" data-cmd="formatBlock" data-value="h3" data-rich-only>H3</button><button class="heading-tool" data-cmd="formatBlock" data-value="h4" data-rich-only>H4</button><button class="heading-tool" data-cmd="formatBlock" data-value="h5" data-rich-only>H5</button><button class="heading-tool" data-cmd="formatBlock" data-value="h6" data-rich-only>H6</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
-<button id="link">Ссылка</button><button id="media">Медиа по URL</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span></div>
+<button id="link">Ссылка</button><button id="media">Медиа по URL</button><button id="local-media" hidden>Медиа из файла</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span></div>
 </header>
 <div id="series-status" class="series-status" aria-live="polite" hidden></div><main><div id="editor" contenteditable="true" spellcheck="true"></div></main>
 <div id="context-menu" class="context-menu" hidden>
@@ -74,13 +74,14 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 <button id="manage">Настроить каналы…</button>
 <button id="publish">Опубликовать</button>
 </div>
-<span class="status" id="status">Вставка через Ctrl+V сохраняет доступное форматирование. Изображения и видео можно добавлять по публичному URL.</span>
+<span class="status" id="status">Вставка через Ctrl+V сохраняет доступное форматирование. Медиа можно добавлять по публичному URL, а в рич-сообщениях и альбомах — также из локальных файлов.</span>
 </footer>
 <script>
 const editor=document.getElementById('editor');
 const contextMenu=document.getElementById('context-menu');
 const channelSelect=document.getElementById('channel');
 const modeSelect=document.getElementById('mode');
+let lastModeValue=modeSelect.value;
 const seriesCheckbox=document.getElementById('series');
 let savedRange=null;
 let selectedBreak=null;
@@ -97,6 +98,7 @@ function applyConfig(value){
  }
  if(config.selected_profile_id)channelSelect.value=config.selected_profile_id;
  modeSelect.value=config.mode||'rich';
+ lastModeValue=modeSelect.value;
  seriesCheckbox.checked=Boolean(config.series)||modeSelect.value.endsWith('_series');
  if(!channelSelect.value&&channelSelect.options.length)channelSelect.selectedIndex=0;
  if(config.status)document.getElementById('status').textContent=config.status;
@@ -418,6 +420,32 @@ function currentPartMediaCount(){
  }
  return partMediaCount(rawParts[selectedIndex]||[]);
 }
+async function insertMediaFromFile(){
+ if(!isRichMode()&&!isAlbumMode())return;
+ const status=document.getElementById('status');
+ try{
+  const files=await window.pywebview.api.select_media_files();
+  if(!files||!files.length)return;
+  const currentCount=currentPartMediaCount();
+  if(isAlbumMode()&&currentCount+files.length>10){
+   status.textContent='В одном альбоме допускается не более 10 изображений или видео.';
+   return;
+  }
+  const markup=files.map(file=>{
+   const path=String(file.path||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+   const uri=String(file.uri||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+   if(file.type==='video')return '<p><video controls data-local-file="'+path+'" src="'+uri+'"></video></p>';
+   return '<p><img data-local-file="'+path+'" src="'+uri+'" alt=""></p>';
+  }).join('');
+  editor.focus();
+  document.execCommand('insertHTML',false,markup);
+  status.textContent='Локальные медиа добавлены. Они поддерживаются в рич-сообщениях и альбомах.';
+  updatePlainCompatibility();
+  updateSeriesStatus();
+ }catch(error){
+  status.textContent='Не удалось добавить медиа из файла: '+(error&&error.message?error.message:String(error));
+ }
+}
 function insertMediaFromUrl(){
  if(isAlbumMode()&&currentPartMediaCount()>=10){document.getElementById('status').textContent='В одном альбоме допускается не более 10 изображений или видео.';return}
  if(!isRichMode()&&!isAlbumMode()&&currentPartMediaCount()>=1){document.getElementById('status').textContent='В одном обычном сообщении допускается только одно изображение или видео.';return}
@@ -450,6 +478,7 @@ function insertMediaFromUrl(){
  updateSeriesStatus();
 }
 document.getElementById('media').onclick=insertMediaFromUrl;
+document.getElementById('local-media').onclick=insertMediaFromFile;
 document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,Number(prompt('Количество строк','2'))||2));const cols=Math.max(1,Math.min(10,Number(prompt('Количество столбцов','2'))||2));let table='<table><tbody>';for(let r=0;r<rows;r++){table+='<tr>';for(let c=0;c<cols;c++)table+='<td><br></td>';table+='</tr>'}table+='</tbody></table><p><br></p>';editor.focus();document.execCommand('insertHTML',false,table)};
 const seriesStatus=document.getElementById('series-status');
 function isAlbumMode(){return modeSelect.value==='album'}
@@ -547,6 +576,7 @@ function updatePlainCompatibility(){
 }
 function updateModeUI(){
  const rich=isRichMode();
+ document.getElementById('local-media').hidden=!rich&&!isAlbumMode();
  document.querySelectorAll('[data-rich-only]').forEach(button=>button.hidden=!rich);
  document.getElementById('series-tools').classList.toggle('visible',isSeriesMode());
  seriesCheckbox.disabled=isAlbumMode();
@@ -723,6 +753,13 @@ function insertBreakAtSelection(){
 document.getElementById('insert-break').addEventListener('click',insertBreakAtSelection);
 editor.addEventListener('input',()=>{updatePlainCompatibility();updateSeriesStatus()});
 modeSelect.addEventListener('change',()=>{
+ if(editor.querySelector('[data-local-file]')&&!['rich','rich_series','album'].includes(modeSelect.value)){
+  alert('Локальные медиа поддерживаются только в рич-сообщениях и альбомах. Чтобы использовать обычный формат, замените локальные файлы публичными URL или выберите совместимый способ публикации.');
+  modeSelect.value=lastModeValue;
+  updateModeUI();
+  return;
+ }
+ lastModeValue=modeSelect.value;
  seriesCheckbox.checked=modeSelect.value.endsWith('_series');
  if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
  else editor.querySelectorAll('.series-break').forEach(node=>node.remove());
@@ -752,6 +789,10 @@ document.getElementById('publish').onclick=async()=>{
   return;
  }
  const text=editor.innerText.trim();
+ if(editor.querySelector('[data-local-file]')&&!['rich','rich_series','album'].includes(modeSelect.value)){
+  document.getElementById('status').textContent='Локальные медиа нельзя отправить в обычном формате. Замените их публичными URL или выберите рич-сообщение либо альбом.';
+  return;
+ }
  if(!text&&!editor.querySelector('img,video')){
   document.getElementById('status').textContent='Добавьте текст, изображение или видео перед публикацией.';
   return;
@@ -823,8 +864,8 @@ MANUAL_HTML = r"""<!doctype html>
 <h2>Подготовка публикации</h2>
 <p>Основная область окна — визуальный редактор. Панель инструментов позволяет применять форматирование, создавать списки, заголовки, цитаты, ссылки и таблицы. Кнопка «Медиа по URL» добавляет изображение или видео по публичной ссылке. В зависимости от выбранного способа публикации доступны разные инструменты редактирования. Если выбранный способ публикации не поддерживает отдельные элементы оформления, приложение преобразует их в доступный формат.</p>
 <h2>Выбор способа публикации</h2>
-<p>Обычные сообщения поддерживают базовое форматирование: жирный шрифт, курсив, подчёркивание, зачёркивание, гиперссылки и цитаты. Для прикрепления одного изображения или видео используется скрытая ссылка, которую Telegram преобразует в предпросмотр. Максимальная длина сообщения — 4096 символов.</p>
-<p>Рич-сообщения позволяют более сложное форматирование. Для длинных публикаций можно выбрать серию сообщений. Режим «Альбом» отправляет от 2 до 10 изображений и видео с общей подписью длиной до 1024 символов. Для альбома указывайте прямые публичные URL файлов, а не страницы видеохостингов.</p>
+<p>Обычные сообщения поддерживают базовое форматирование: жирный шрифт, курсив, подчёркивание, зачёркивание, гиперссылки и цитаты. Для прикрепления одного изображения или видео используется скрытая ссылка, которую Telegram преобразует в предпросмотр. Максимальная длина сообщения — 4096 символов. Локальные медиа в обычном формате не поддерживаются: используйте публичный URL или выберите рич-сообщение либо альбом.</p>
+<p>Рич-сообщения позволяют более сложное форматирование. Для длинных публикаций можно выбрать серию сообщений. Режим «Альбом» отправляет от 2 до 10 изображений и видео с общей подписью длиной до 1024 символов. Для альбома можно использовать прямые публичные URL или кнопку «Медиа из файла».</p>
 <p>В режиме серии кнопка «Разрыв сообщения» вставляет границу в текущем месте. Разрыв можно выбрать и удалить. Перед публикацией проверяйте предупреждения о длине текста и количестве медиа.</p>
 <h2>Настройка каналов</h2>
 <p>В нижней части окна нажмите «Настроить каналы…», чтобы добавить один или несколько профилей. Для каждого профиля укажите название, идентификатор канала и токен бота, которому разрешено публиковать сообщения в этом канале. Публикации отправляются от имени бота.</p>
@@ -941,6 +982,44 @@ class EditorApi:
         )
         return str(destination)
 
+    def select_media_files(self) -> list[dict[str, str]]:
+        """Выбрать локальные изображения и видео для совместимых способов публикации."""
+        paths = self.window.create_file_dialog(
+            webview.FileDialog.OPEN,
+            allow_multiple=True,
+            file_types=(
+                "Изображения и видео (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.avif;*.mp4;*.m4v;*.mov;*.webm;*.mkv)",
+                "Изображения (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.avif)",
+                "Видео (*.mp4;*.m4v;*.mov;*.webm;*.mkv)",
+                "Все файлы (*.*)",
+            ),
+        )
+        if not paths:
+            return []
+        if isinstance(paths, (str, Path)):
+            paths = [paths]
+        image_extensions = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif"}
+        video_extensions = {".mp4", ".m4v", ".mov", ".webm", ".mkv"}
+        selected: list[dict[str, str]] = []
+        for item in paths:
+            path = Path(item).resolve()
+            suffix = path.suffix.lower()
+            if suffix not in image_extensions | video_extensions:
+                raise ValueError(
+                    f"Формат файла «{path.name}» не поддерживается. "
+                    "Выберите изображение или видео из списка форматов."
+                )
+            if not path.is_file():
+                continue
+            selected.append(
+                {
+                    "path": str(path),
+                    "uri": path.as_uri(),
+                    "type": "video" if suffix in video_extensions else "photo",
+                }
+            )
+        return selected
+
     def import_file(self) -> str | None:
         """Предложить выбрать локальный файл и преобразовать его в HTML."""
         paths = self.window.create_file_dialog(
@@ -975,7 +1054,7 @@ def main() -> None:
     status_path = output_path.with_name("editor-status.json")
     status_path.unlink(missing_ok=True)
     api = EditorApi(output_path, status_path, window)
-    window.expose(api.finish, api.publish, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual)
+    window.expose(api.finish, api.publish, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual, api.select_media_files)
 
     def initialize() -> None:
         window.evaluate_js(

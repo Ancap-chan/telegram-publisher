@@ -41,7 +41,7 @@ try {
         throw "Автоматические тесты не пройдены. Сборка отменена."
     }
 
-    & $Python -m PyInstaller --noconfirm --clean --windowed --name "Telegram Publisher" --paths "src" --collect-all webview --collect-all clr_loader --collect-all pythonnet "run_app.py"
+    & $Python -m PyInstaller --noconfirm --clean --onefile --windowed --name "Telegram Publisher" --paths "src" --collect-all webview --collect-all clr_loader --collect-all pythonnet "run_app.py"
     if ($LASTEXITCODE -ne 0) {
         throw "Сборка PyInstaller завершилась с ошибкой. Код завершения: $LASTEXITCODE"
     }
@@ -51,7 +51,7 @@ try {
         throw "Не удалось сохранить список установленных зависимостей."
     }
 
-    $Executable = Join-Path $ProjectRoot "dist\Telegram Publisher\Telegram Publisher.exe"
+    $Executable = Join-Path $ProjectRoot "dist\Telegram Publisher.exe"
     $DependencyList = Join-Path $ProjectRoot "dist\build-dependencies.txt"
     Write-Host "Сборка завершена. Исполняемый файл: $Executable"
     Write-Host "Список версий зависимостей: $DependencyList"

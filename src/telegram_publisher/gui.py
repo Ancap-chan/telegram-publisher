@@ -5,7 +5,6 @@ from __future__ import annotations
 import html
 import json
 import math
-import os
 import re
 import subprocess
 import sys
@@ -14,8 +13,6 @@ import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
-
-from dotenv import load_dotenv
 
 from telegram_publisher.profiles import (
     ChannelProfile,
@@ -57,20 +54,6 @@ def _html_to_text(content: str) -> str:
     return "".join(parser.parts).strip()
 
 
-def _load_environment() -> None:
-    """Искать .env рядом с приложением и проектом, а не только в cwd."""
-    candidates: list[Path] = []
-    if getattr(sys, "frozen", False):
-        candidates.append(Path(sys.executable).resolve().parent / ".env")
-    candidates.append(Path.cwd() / ".env")
-    if not getattr(sys, "frozen", False):
-        candidates.append(Path(__file__).resolve().parents[2] / ".env")
-    for path in dict.fromkeys(candidates):
-        if path.is_file():
-            load_dotenv(path, override=False)
-            break
-
-
 class PublisherWindow:
     """Главное окно приложения."""
 
@@ -93,8 +76,7 @@ class PublisherWindow:
         self.pending_retry_after = 0.0
         self.resuming_pending = False
 
-        _load_environment()
-        self.profiles = self._load_profiles_with_environment()
+        self.profiles = self._load_profiles()
         self.selected_profile_id: str | None = None
 
         self._build_backend_state()
@@ -103,34 +85,17 @@ class PublisherWindow:
         self.root.bind("<Control-e>", lambda _event: self._open_editor())
         self.root.after(150, self._open_editor)
 
-    def _load_profiles_with_environment(self) -> list[ChannelProfile]:
+    def _load_profiles(self) -> list[ChannelProfile]:
+        """Загрузить профили каналов из постоянного хранилища."""
         try:
-            profiles = load_profiles()
+            return load_profiles()
         except Exception as error:
             messagebox.showerror(
                 "Настройки каналов",
                 f"Не удалось загрузить сохранённые профили: {error}",
                 parent=self.root,
             )
-            profiles = []
-        if profiles:
-            return profiles
-
-        token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-        chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-        if token and chat_id:
-            try:
-                return [save_profile("Канал из .env", token, chat_id)]
-            except Exception as error:
-                messagebox.showwarning(
-                    "Не удалось сохранить профиль",
-                    "Настройки из .env доступны только до закрытия приложения, "
-                    "поскольку не удалось сохранить токен в системном хранилище секретов.\n\n"
-                    f"Подробности: {error}",
-                    parent=self.root,
-                )
-                return [ChannelProfile("env-session", "Канал из .env", chat_id, token)]
-        return []
+            return []
 
     def _build_backend_state(self) -> None:
         """Создать только невидимое состояние для логики публикации.
@@ -157,7 +122,7 @@ class PublisherWindow:
             stored_profiles = []
         if stored_profiles:
             self.profiles = stored_profiles
-        elif not self.profiles or all(profile.profile_id != "env-session" for profile in self.profiles):
+        else:
             self.profiles = []
 
         self.profile_combo["values"] = [
@@ -255,7 +220,7 @@ class PublisherWindow:
                     name_var.get(),
                     token_var.get(),
                     chat_var.get(),
-                    selected_id if selected_id != "env-session" else None,
+                    selected_id,
                 )
                 working_profiles[:] = load_profiles()
             except Exception as error:
@@ -280,12 +245,11 @@ class PublisherWindow:
                 parent=dialog,
             ):
                 return
-            if profile.profile_id != "env-session":
-                try:
-                    delete_profile(profile.profile_id)
-                except Exception as error:
-                    messagebox.showerror("Не удалось удалить профиль", str(error), parent=dialog)
-                    return
+            try:
+                delete_profile(profile.profile_id)
+            except Exception as error:
+                messagebox.showerror("Не удалось удалить профиль", str(error), parent=dialog)
+                return
             working_profiles[:] = [
                 item for item in working_profiles if item.profile_id != profile.profile_id
             ]

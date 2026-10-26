@@ -1,4 +1,4 @@
-"""Проверки протокола обмена визуального редактора с управляющей частью."""
+"""Проверки API визуального редактора."""
 
 import json
 
@@ -14,60 +14,12 @@ class FakeWindow:
     """Минимальная заглушка окна для проверки протокола обмена."""
 
 
-def test_editor_api_finish_writes_publish_request(tmp_path):
-    output_path = tmp_path / "result.json"
-    api = EditorApi(output_path, tmp_path / "status.json", FakeWindow())
-    request = {
-        "action": "publish",
-        "html": "<p>Текст публикации</p>",
-        "mode": "rich",
-        "profile_id": "profile-1",
-    }
-
-    api.finish(request)
-
-    assert json.loads(output_path.read_text(encoding="utf-8")) == request
-
-
-def test_editor_api_finish_writes_request_without_closing_editor(tmp_path):
-    output_path = tmp_path / "result.json"
-    api = EditorApi(output_path, tmp_path / "status.json", FakeWindow())
-
-    api.finish({"action": "manage_profiles", "profile_id": "profile-1"})
-
-    assert json.loads(output_path.read_text(encoding="utf-8")) == {
-        "action": "manage_profiles",
-        "profile_id": "profile-1",
-    }
-
-
-def test_editor_api_reads_status_once(tmp_path):
-    status_path = tmp_path / "status.json"
-    api = EditorApi(tmp_path / "result.json", status_path, FakeWindow())
-    status_path.write_text(
-        json.dumps({"message": "Публикация завершена", "clear": False}, ensure_ascii=False),
-        encoding="utf-8",
-    )
-
-    assert api.get_status() == {"message": "Публикация завершена", "clear": False}
-    assert not status_path.exists()
-    assert api.get_status() is None
-
-
-def test_editor_api_ignores_invalid_status_json(tmp_path):
-    status_path = tmp_path / "status.json"
-    api = EditorApi(tmp_path / "result.json", status_path, FakeWindow())
-    status_path.write_text("{", encoding="utf-8")
-
-    assert api.get_status() is None
-
-
 def test_editor_api_returns_profiles_without_tokens(tmp_path, monkeypatch):
     profiles = [
         ChannelProfile("profile-1", "Основной канал", "@main", "секретный-токен"),
     ]
     monkeypatch.setattr(editor_module, "load_profiles", lambda: profiles)
-    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+    api = EditorApi(FakeWindow())
 
     assert api.get_profiles() == [
         {"profile_id": "profile-1", "name": "Основной канал", "chat_id": "@main"}
@@ -85,7 +37,7 @@ def test_editor_api_keeps_existing_token_when_editing_profile(tmp_path, monkeypa
         saved.update(name=name, token=token, chat_id=chat_id, profile_id=profile_id)
 
     monkeypatch.setattr(editor_module, "save_profile", save_profile)
-    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+    api = EditorApi(FakeWindow())
 
     api.save_channel_profile("Новое название", "@new", "", "profile-1")
 
@@ -105,7 +57,7 @@ def test_editor_api_requires_token_when_editing_profile_without_saved_secret(
         "load_profiles",
         lambda: [ChannelProfile("profile-1", "Канал", "@channel", "")],
     )
-    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+    api = EditorApi(FakeWindow())
 
     with pytest.raises(ValueError, match="нужно указать токен"):
         api.save_channel_profile("Канал", "@channel", "", "profile-1")
@@ -116,7 +68,7 @@ def test_editor_api_deletes_profile_and_returns_remaining_profiles(tmp_path, mon
     monkeypatch.setattr(editor_module, "delete_profile", lambda profile_id: deleted.append(profile_id))
     monkeypatch.setattr(editor_module, "load_profiles", lambda: [])
 
-    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+    api = EditorApi(FakeWindow())
 
     assert api.delete_channel_profile("profile-1") == []
     assert deleted == ["profile-1"]
@@ -140,7 +92,7 @@ def test_editor_api_publishes_rich_content_in_background(tmp_path, monkeypatch):
 
     monkeypatch.setattr(editor_module.threading, "Thread", ImmediateThread)
     monkeypatch.setattr(editor_module, "PublicationController", FakeController)
-    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+    api = EditorApi(FakeWindow())
 
     api.publish({
         "action": "publish",
@@ -175,7 +127,7 @@ def test_editor_api_publishes_plain_content_without_review_flow(tmp_path, monkey
 
     monkeypatch.setattr(editor_module.threading, "Thread", ImmediateThread)
     monkeypatch.setattr(editor_module, "PublicationController", FakeController)
-    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+    api = EditorApi(FakeWindow())
 
     api.publish({
         "action": "publish",
@@ -196,7 +148,7 @@ def test_editor_api_publishes_plain_content_without_review_flow(tmp_path, monkey
 
 def test_editor_api_rejects_publish_when_profile_is_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(editor_module, "load_profiles", lambda: [])
-    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+    api = EditorApi(FakeWindow())
 
     with pytest.raises(ValueError, match="Настройки выбранного канала"):
         api.publish({"mode": "rich", "html": "<p>Текст</p>", "profile_id": "missing"})
@@ -224,7 +176,7 @@ def test_editor_api_stores_partial_publication_and_exposes_retry(tmp_path, monke
 
     monkeypatch.setattr(editor_module.threading, "Thread", ImmediateThread)
     monkeypatch.setattr(editor_module, "PublicationController", FakeController)
-    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+    api = EditorApi(FakeWindow())
 
     api.publish({
         "action": "publish",
@@ -270,7 +222,7 @@ def test_editor_api_accumulates_sent_count_when_retry_is_partial(tmp_path, monke
 
     monkeypatch.setattr(editor_module.threading, "Thread", ImmediateThread)
     monkeypatch.setattr(editor_module, "PublicationController", FakeController)
-    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+    api = EditorApi(FakeWindow())
     api._pending_profile = profile
     api._pending_messages = ["<p>Остаток 1</p>", "<p>Остаток 2</p>"]
     api._pending_sent_count = 2
@@ -286,17 +238,7 @@ def test_editor_api_accumulates_sent_count_when_retry_is_partial(tmp_path, monke
 
 
 def test_editor_api_rejects_retry_without_pending_messages(tmp_path):
-    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+    api = EditorApi(FakeWindow())
 
     with pytest.raises(ValueError, match="Нет сообщений"):
         api.retry_pending()
-
-
-
-def test_editor_api_without_legacy_paths_does_not_use_json_protocol():
-    api = EditorApi(None, None, FakeWindow())
-
-    with pytest.raises(ValueError, match="работает самостоятельно"):
-        api.finish({"action": "publish"})
-
-    assert api.get_status() is None

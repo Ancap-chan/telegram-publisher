@@ -290,3 +290,13 @@ def test_editor_api_rejects_retry_without_pending_messages(tmp_path):
 
     with pytest.raises(ValueError, match="Нет сообщений"):
         api.retry_pending()
+
+
+
+def test_editor_api_without_legacy_paths_does_not_use_json_protocol():
+    api = EditorApi(None, None, FakeWindow())
+
+    with pytest.raises(ValueError, match="работает самостоятельно"):
+        api.finish({"action": "publish"})
+
+    assert api.get_status() is None

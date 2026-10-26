@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
-import mimetypes
-import sys
-import re
+import mimetypesimport re
 import threading
 from pathlib import Path
 
@@ -953,11 +951,9 @@ MANUAL_HTML = r"""<!doctype html>
 </article></body></html>""".replace("{{VERSION}}", __version__)
 
 class EditorApi:
-    """Передать результат редактора вызывающему приложению."""
+    """Обеспечить работу визуального редактора и публикацию сообщений."""
 
-    def __init__(self, output_path: Path | None, status_path: Path | None, window: object) -> None:
-        self.output_path = output_path
-        self.status_path = status_path
+    def __init__(self, window: object) -> None:
         self.window = window
         self.manual_window = None
         self._status_lock = threading.Lock()
@@ -1002,12 +998,6 @@ class EditorApi:
             raise ValueError("Не выбран канал для удаления.")
         delete_profile(profile_id)
         return self.get_profiles()
-
-    def finish(self, result: dict) -> None:
-        """Передать запрос старому управляющему процессу, если он запущен."""
-        if self.output_path is None:
-            raise ValueError("Редактор работает самостоятельно; передавать запрос старому приложению не требуется.")
-        self.output_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
 
     def publish(self, result: dict) -> None:
         """Опубликовать сообщение выбранным способом прямо из визуального редактора."""
@@ -1098,22 +1088,11 @@ class EditorApi:
             self._status_update = payload
 
     def get_status(self) -> dict | None:
-        """Получить уведомление о публикации или от старого управляющего процесса."""
+        """Получить однократное уведомление о публикации."""
         with self._status_lock:
-            if self._status_update is not None:
-                payload = self._status_update
-                self._status_update = None
-                return payload
-        if self.status_path is None:
-            return None
-        try:
-            if not self.status_path.is_file():
-                return None
-            payload = json.loads(self.status_path.read_text(encoding="utf-8"))
-            self.status_path.unlink(missing_ok=True)
-            return payload if isinstance(payload, dict) else None
-        except (OSError, json.JSONDecodeError):
-            return None
+            payload = self._status_update
+            self._status_update = None
+            return payload
 
     def import_url(self, url: str) -> str:
         """Загрузить публикацию по URL и вернуть HTML для редактора."""
@@ -1254,29 +1233,16 @@ class EditorApi:
 
 
 def main() -> None:
-    """Запустить редактор самостоятельно или в совместимом режиме."""
-    if len(sys.argv) == 1:
-        initial_content = ""
-        profiles = load_profiles()
-        config = {
-            "profiles": [EditorApi._public_profile(profile) for profile in profiles],
-            "selected_profile_id": profiles[0].profile_id if profiles else None,
-            "mode": "rich",
-            "series": False,
-            "status": "Выберите канал и подготовьте публикацию.",
-        }
-        output_path = None
-        status_path = None
-    elif len(sys.argv) == 4:
-        initial_path, output_path, config_path = map(Path, sys.argv[1:4])
-        initial_content = initial_path.read_text(encoding="utf-8")
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-        status_path = output_path.with_name("editor-status.json")
-        status_path.unlink(missing_ok=True)
-    else:
-        raise SystemExit(
-            "Запустите редактор без аргументов или передайте три файла старого режима совместимости."
-        )
+    """Запустить визуальный редактор как главное окно приложения."""
+    profiles = load_profiles()
+    initial_content = ""
+    config = {
+        "profiles": [EditorApi._public_profile(profile) for profile in profiles],
+        "selected_profile_id": profiles[0].profile_id if profiles else None,
+        "mode": "rich",
+        "series": False,
+        "status": "Выберите канал и подготовьте публикацию.",
+    }
 
     window = webview.create_window(
         "Telegram Publisher — редактор",
@@ -1284,8 +1250,8 @@ def main() -> None:
         width=1200,
         height=850,
     )
-    api = EditorApi(output_path, status_path, window)
-    window.expose(api.finish, api.publish, api.retry_pending, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual, api.select_media_files, api.get_profiles, api.save_channel_profile, api.delete_channel_profile)
+    api = EditorApi(window)
+    window.expose(api.publish, api.retry_pending, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual, api.select_media_files, api.get_profiles, api.save_channel_profile, api.delete_channel_profile)
 
     def initialize() -> None:
         window.evaluate_js(

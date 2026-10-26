@@ -126,6 +126,8 @@ def estimate_message_count(
         )
     if mode == "album":
         return len(re.findall(r"<(?:img|video)\b", text, re.IGNORECASE))
+    if mode == "album_series":
+        return len(re.findall(r"<(?:img|video)\b", text, re.IGNORECASE))
     if mode == "plain_series":
         return len(split_text(text, TEXT_LIMIT))
     if mode == "rich_series" or (series and mode in {"rich", "media_text"}):
@@ -613,6 +615,23 @@ async def send_publication(
             async with Bot(token=token) as bot:
                 await bot.send_media_group(chat_id=chat_id, media=media)
         return len(media)
+
+    if mode == "album_series":
+        album_parts = parts or [text]
+        if not album_parts:
+            raise ValueError("Добавьте хотя бы один альбом.")
+        sent = 0
+        async with Bot(token=token) as bot:
+            for index, part in enumerate(album_parts):
+                with ExitStack() as file_stack:
+                    media = _prepare_album_media(part, None, file_stack)
+                    if index and initial_delay:
+                        await asyncio.sleep(initial_delay)
+                    elif index:
+                        await asyncio.sleep(SERIES_SEND_INTERVAL)
+                    await bot.send_media_group(chat_id=chat_id, media=media)
+                    sent += len(media)
+        return sent
 
     if not text and not image_path:
         raise ValueError("Добавьте текст или выберите изображение для публикации.")

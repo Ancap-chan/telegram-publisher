@@ -563,3 +563,68 @@ def test_album_message_count_matches_number_of_media_items() -> None:
         '<video src="https://example.org/two.mp4"></video>'
     )
     assert estimate_message_count(content, None, "album") == 2
+
+
+def test_rich_payload_uploads_local_photo_and_video(tmp_path) -> None:
+    from telegram_publisher.publishing import _rich_payload
+
+    photo = tmp_path / "изображение.png"
+    video = tmp_path / "ролик.mp4"
+    photo.write_bytes(b"photo-bytes")
+    video.write_bytes(b"video-bytes")
+
+    payload = _rich_payload(
+        f'<img data-local-file="{photo}" src="{photo.as_uri()}">'
+        f'<video data-local-file="{video}" src="{video.as_uri()}"></video>',
+        None,
+        rich_formatting=True,
+    )
+
+    assert len(payload["media"]) == 2
+    assert payload["media"][0]["media"]["media"] == "attach://local_media_1"
+    assert payload["media"][1]["media"]["media"] == "attach://local_media_2"
+    assert payload["_upload_files"][0]["data"] == b"photo-bytes"
+    assert payload["_upload_files"][0]["filename"] == "изображение.png"
+    assert payload["_upload_files"][1]["data"] == b"video-bytes"
+    assert payload["_upload_files"][1]["mime_type"] == "video/mp4"
+    assert "tg://photo?id=publication_media_1" in payload["html"]
+    assert "tg://video?id=publication_media_2" in payload["html"]
+
+
+def test_rich_payload_reports_missing_local_media(tmp_path) -> None:
+    from telegram_publisher.publishing import _rich_payload
+
+    missing = tmp_path / "missing.png"
+    with pytest.raises(ValueError, match="Локальный медиафайл не найден"):
+        _rich_payload(
+            f'<img data-local-file="{missing}" src="{missing.as_uri()}">',
+            None,
+            rich_formatting=True,
+        )
+
+
+def test_album_prepares_local_photo_and_video(tmp_path) -> None:
+    from contextlib import ExitStack
+
+    from telegram import InputMediaPhoto, InputMediaVideo
+
+    from telegram_publisher.publishing import _prepare_album_media
+
+    photo = tmp_path / "one.png"
+    video = tmp_path / "two.mp4"
+    photo.write_bytes(b"photo-bytes")
+    video.write_bytes(b"video-bytes")
+
+    with ExitStack() as stack:
+        media = _prepare_album_media(
+            f'<p>Общая подпись</p>'
+            f'<img data-local-file="{photo}" src="{photo.as_uri()}">'
+            f'<video data-local-file="{video}" src="{video.as_uri()}"></video>',
+            file_stack=stack,
+        )
+        assert len(media) == 2
+        assert isinstance(media[0], InputMediaPhoto)
+        assert isinstance(media[1], InputMediaVideo)
+        assert media[0].media.read() == b"photo-bytes"
+        assert media[1].media.read() == b"video-bytes"
+        assert media[0].caption == "Общая подпись"

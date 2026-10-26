@@ -46,6 +46,34 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 .context-menu button:hover{background:#eee}
 #publish{font-weight:600}
 .series-break{display:block;position:relative;margin:14px 0;padding:8px 12px;border:2px dashed #789;border-radius:5px;background:#eef3f8;color:#34495e;text-align:center;font-size:13px;cursor:default;user-select:none}.series-break.selected{outline:2px solid #2457a7;background:#dce8fa}.series-status{padding:8px 14px;background:#f4f5f7;border-bottom:1px solid #ddd;font-size:13px;white-space:pre-wrap}.series-status.warning{color:#a21d1d;font-weight:600}#series-tools{display:none}#series-tools.visible{display:inline-flex;gap:6px;align-items:center}
+
+/* Диалог управления профилями каналов */
+#channel-dialog-backdrop{position:fixed;inset:0;z-index:2000;display:none;align-items:center;justify-content:center;padding:24px;background:#17202b66}
+#channel-dialog-backdrop.open{display:flex}
+#channel-dialog{width:min(760px,100%);max-height:min(720px,calc(100vh - 48px));display:flex;flex-direction:column;background:#fff;border:1px solid #d6dbe1;border-radius:12px;box-shadow:0 18px 60px #0003;overflow:hidden;color:#20252b}
+.dialog-heading{display:flex;align-items:center;gap:12px;padding:18px 22px;border-bottom:1px solid #e3e6ea}
+.dialog-heading h2{font-size:19px;font-weight:650;margin:0;flex:1}
+.dialog-close{font-size:22px;line-height:1;padding:5px 10px;border:0;background:transparent;color:#606975}
+.dialog-body{display:grid;grid-template-columns:minmax(210px,0.85fr) minmax(280px,1.15fr);min-height:300px;overflow:auto}
+.profile-list-panel{padding:16px;border-right:1px solid #e3e6ea;background:#f8f9fb}
+.profile-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.profile-item{display:flex;flex-direction:column;align-items:flex-start;gap:3px;width:100%;padding:11px 12px;text-align:left;border:1px solid transparent;background:transparent;border-radius:7px;overflow-wrap:anywhere}
+.profile-item:hover{background:#eef1f5}
+.profile-item[aria-pressed="true"]{background:#e8f0ff;border-color:#9bbcf8;color:#173d79}
+.profile-item small{font-size:12px;color:#626b77}
+.profile-form{display:flex;flex-direction:column;gap:13px;padding:20px 22px}
+.profile-form label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:#414954}
+.profile-form input{width:100%;min-width:0;padding:9px 10px;border:1px solid #c9cfd7;border-radius:6px;background:#fff;font:14px "Segoe UI",sans-serif;color:#20252b}
+.profile-form input:focus{outline:2px solid #9bbcf8;outline-offset:1px;border-color:#477fda}
+.dialog-hint{font-size:12px;line-height:1.45;font-weight:400;color:#69727e}
+.dialog-error{min-height:18px;color:#a32020;font-size:13px;white-space:pre-wrap}
+.dialog-footer{display:flex;align-items:center;gap:8px;padding:14px 20px;border-top:1px solid #e3e6ea;background:#fbfcfd}
+.dialog-footer .spacer{flex:1}
+button.danger{color:#a32020;border-color:#d9aaaa}
+button.primary{background:#245eb5;color:#fff;border-color:#245eb5}
+button.primary:hover{background:#194b95}
+button:disabled{opacity:.55;cursor:default}
+@media(max-width:620px){#channel-dialog-backdrop{padding:8px}#channel-dialog{max-height:calc(100vh - 16px)}.dialog-body{grid-template-columns:1fr}.profile-list-panel{border-right:0;border-bottom:1px solid #e3e6ea}.profile-list{max-height:150px;overflow:auto}.profile-form{padding:16px}}
 </style>
 </head>
 <body>
@@ -62,6 +90,40 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 <button data-edit="paste">Вставить</button>
 <button data-action="insert-break">Вставить разрыв сообщения</button>
 <button data-action="delete-break">Удалить разрыв</button>
+</div>
+<div id="channel-dialog-backdrop" role="presentation">
+ <section id="channel-dialog" role="dialog" aria-modal="true" aria-labelledby="channel-dialog-title">
+  <div class="dialog-heading">
+   <h2 id="channel-dialog-title">Настройка каналов</h2>
+   <button type="button" class="dialog-close" id="channel-dialog-close" aria-label="Закрыть">×</button>
+  </div>
+  <div class="dialog-body">
+   <div class="profile-list-panel">
+    <div id="channel-profile-list" class="profile-list" aria-label="Список каналов"></div>
+    <button type="button" id="channel-profile-add" class="primary" style="width:100%">+ Добавить канал</button>
+   </div>
+   <div class="profile-form">
+    <label>Название профиля
+     <input id="channel-profile-name" autocomplete="off" maxlength="120" placeholder="Например, Основной канал">
+    </label>
+    <label>Идентификатор канала
+     <input id="channel-profile-chat-id" autocomplete="off" placeholder="@my_channel или -100…">
+     <span class="dialog-hint">Укажите публичное имя канала или числовой ID. Бот должен иметь право публикации.</span>
+    </label>
+    <label>Токен бота
+     <input id="channel-profile-token" type="password" autocomplete="new-password" spellcheck="false" placeholder="Токен Telegram Bot API">
+     <span id="channel-profile-token-hint" class="dialog-hint">Токен хранится в системном хранилище Windows и не показывается здесь.</span>
+    </label>
+    <div id="channel-dialog-error" class="dialog-error" role="status" aria-live="polite"></div>
+   </div>
+  </div>
+  <div class="dialog-footer">
+   <button type="button" id="channel-profile-delete" class="danger">Удалить канал</button>
+   <span class="spacer"></span>
+   <button type="button" id="channel-dialog-cancel">Отмена</button>
+   <button type="button" id="channel-profile-save" class="primary">Сохранить</button>
+  </div>
+ </section>
 </div>
 <footer>
 <div class="publish-options">
@@ -828,59 +890,140 @@ document.getElementById('retry-pending').onclick=async()=>{
   document.getElementById('status').textContent='Не удалось начать повторную отправку: '+(error&&error.message?error.message:String(error));
  }
 };
-async function manageProfiles(){
- const status=document.getElementById('status');
- try{
-  const profiles=await window.pywebview.api.get_profiles();
-  const action=prompt('Управление каналами:\n1 — добавить канал\n2 — изменить канал\n3 — удалить канал\nОтмена — закрыть');
-  if(action===null)return;
-  if(action==='1'){
-   const name=prompt('Название канала:');
-   if(name===null)return;
-   const chatId=prompt('Идентификатор канала (@имя или числовой ID):');
-   if(chatId===null)return;
-   const token=prompt('Токен бота:');
-   if(token===null)return;
-   config.profiles=await window.pywebview.api.save_channel_profile(name,chatId,token,null);
-   config.selected_profile_id=config.profiles[config.profiles.length-1]?.profile_id||null;
-  }else if(action==='2'||action==='3'){
-   if(!profiles.length){status.textContent='Сначала добавьте канал.';return;}
-   const list=profiles.map((p,i)=>(i+1)+' — '+p.name+' ('+p.chat_id+')').join('\n');
-   const choice=prompt('Введите номер канала:\n'+list);
-   if(choice===null)return;
-   const index=Number(choice)-1;
-   if(!Number.isInteger(index)||index<0||index>=profiles.length){status.textContent='Неверный номер канала.';return;}
-   const profile=profiles[index];
-   if(action==='3'){
-    if(!confirm('Удалить канал «'+profile.name+'»?'))return;
-    config.profiles=await window.pywebview.api.delete_channel_profile(profile.profile_id);
-    config.selected_profile_id=config.profiles[0]?.profile_id||null;
-   }else{
-    const name=prompt('Название канала:',profile.name);
-    if(name===null)return;
-    const chatId=prompt('Идентификатор канала:',profile.chat_id);
-    if(chatId===null)return;
-    const token=prompt('Новый токен (оставьте пустым, чтобы сохранить прежний):');
-    if(token===null)return;
-    config.profiles=await window.pywebview.api.save_channel_profile(name,chatId,token,profile.profile_id);
-    config.selected_profile_id=profile.profile_id;
-   }
-  }else{
-   status.textContent='Выберите 1, 2 или 3.';
-   return;
-  }
-  channelSelect.replaceChildren();
-  for(const profile of config.profiles){
-   const option=document.createElement('option');
-   option.value=profile.profile_id;
-   option.textContent=profile.name+' — '+profile.chat_id;
-   channelSelect.append(option);
-  }
-  if(config.selected_profile_id)channelSelect.value=config.selected_profile_id;
-  status.textContent=config.profiles.length?'Список каналов обновлён.':'Каналы не настроены.';
- }catch(error){
-  status.textContent='Не удалось изменить список каналов: '+(error&&error.message?error.message:String(error));
+let channelDialogProfiles=[];
+let editingProfileId=null;
+let channelDialogMode='view';
+const channelDialogBackdrop=document.getElementById('channel-dialog-backdrop');
+const channelProfileList=document.getElementById('channel-profile-list');
+const channelProfileName=document.getElementById('channel-profile-name');
+const channelProfileChatId=document.getElementById('channel-profile-chat-id');
+const channelProfileToken=document.getElementById('channel-profile-token');
+const channelDialogError=document.getElementById('channel-dialog-error');
+function setChannelDialogError(message=''){channelDialogError.textContent=message}
+function renderChannelProfileList(){
+ channelProfileList.replaceChildren();
+ if(!channelDialogProfiles.length){
+  const empty=document.createElement('div');
+  empty.className='dialog-hint';
+  empty.textContent='Пока нет настроенных каналов.';
+  channelProfileList.append(empty);
  }
+ for(const profile of channelDialogProfiles){
+  const button=document.createElement('button');
+  button.type='button';
+  button.className='profile-item';
+  button.setAttribute('aria-pressed',String(profile.profile_id===editingProfileId));
+  const name=document.createElement('strong');
+  name.textContent=profile.name;
+  const chatId=document.createElement('small');
+  chatId.textContent=profile.chat_id;
+  button.append(name,chatId);
+  button.addEventListener('click',()=>showChannelProfile(profile.profile_id));
+  channelProfileList.append(button);
+ }
+ document.getElementById('channel-profile-delete').disabled=!editingProfileId;
+}
+function showChannelProfile(profileId){
+ const profile=channelDialogProfiles.find(item=>item.profile_id===profileId);
+ if(!profile)return;
+ editingProfileId=profile.profile_id;
+ channelDialogMode='edit';
+ channelProfileName.value=profile.name;
+ channelProfileChatId.value=profile.chat_id;
+ channelProfileToken.value='';
+ channelProfileToken.placeholder='Оставьте пустым, чтобы сохранить прежний';
+ document.getElementById('channel-profile-token-hint').textContent='При пустом поле действующий токен останется без изменений.';
+ document.getElementById('channel-profile-save').textContent='Сохранить изменения';
+ setChannelDialogError('');
+ renderChannelProfileList();
+}
+function startNewChannelProfile(){
+ editingProfileId=null;
+ channelDialogMode='add';
+ channelProfileName.value='';
+ channelProfileChatId.value='';
+ channelProfileToken.value='';
+ channelProfileToken.placeholder='Токен Telegram Bot API';
+ document.getElementById('channel-profile-token-hint').textContent='Токен хранится в системном хранилище Windows и не показывается здесь.';
+ document.getElementById('channel-profile-save').textContent='Добавить канал';
+ setChannelDialogError('');
+ renderChannelProfileList();
+ channelProfileName.focus();
+}
+function closeChannelDialog(){
+ channelDialogBackdrop.classList.remove('open');
+}
+async function manageProfiles(){
+ try{
+  channelDialogProfiles=await window.pywebview.api.get_profiles();
+  channelDialogBackdrop.classList.add('open');
+  if(channelSelect.value&&channelDialogProfiles.some(profile=>profile.profile_id===channelSelect.value))showChannelProfile(channelSelect.value);
+  else if(channelDialogProfiles.length)showChannelProfile(channelDialogProfiles[0].profile_id);
+  else startNewChannelProfile();
+ }catch(error){
+  document.getElementById('status').textContent='Не удалось загрузить список каналов: '+(error&&error.message?error.message:String(error));
+ }
+}
+document.getElementById('channel-dialog-close').addEventListener('click',closeChannelDialog);
+document.getElementById('channel-dialog-cancel').addEventListener('click',closeChannelDialog);
+channelDialogBackdrop.addEventListener('click',event=>{if(event.target===channelDialogBackdrop)closeChannelDialog()});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&channelDialogBackdrop.classList.contains('open'))closeChannelDialog()});
+document.getElementById('channel-profile-add').addEventListener('click',startNewChannelProfile);
+document.getElementById('channel-profile-delete').addEventListener('click',async()=>{
+ if(!editingProfileId)return;
+ const profile=channelDialogProfiles.find(item=>item.profile_id===editingProfileId);
+ if(!profile)return;
+ if(!confirm('Удалить канал «'+profile.name+'»? Это также удалит сохранённый токен бота.'))return;
+ const button=document.getElementById('channel-profile-delete');
+ button.disabled=true;
+ try{
+  channelDialogProfiles=await window.pywebview.api.delete_channel_profile(profile.profile_id);
+  config.profiles=channelDialogProfiles;
+  if(channelDialogProfiles.some(item=>item.profile_id===channelSelect.value))config.selected_profile_id=channelSelect.value;
+  else config.selected_profile_id=channelDialogProfiles[0]?.profile_id||null;
+  refreshChannelSelect();
+  if(channelDialogProfiles.length)showChannelProfile(config.selected_profile_id||channelDialogProfiles[0].profile_id);
+  else startNewChannelProfile();
+  document.getElementById('status').textContent=channelDialogProfiles.length?'Список каналов обновлён.':'Каналы не настроены.';
+ }catch(error){
+  setChannelDialogError('Не удалось удалить канал: '+(error&&error.message?error.message:String(error)));
+ }finally{
+  button.disabled=!editingProfileId;
+ }
+});
+document.getElementById('channel-profile-save').addEventListener('click',async()=>{
+ const name=channelProfileName.value.trim();
+ const chatId=channelProfileChatId.value.trim();
+ const token=channelProfileToken.value.trim();
+ if(!name||!chatId){setChannelDialogError('Заполните название профиля и идентификатор канала.');return}
+ if(channelDialogMode==='add'&&!token){setChannelDialogError('Для нового канала необходимо указать токен бота.');return}
+ const button=document.getElementById('channel-profile-save');
+ button.disabled=true;
+ setChannelDialogError('');
+ try{
+  channelDialogProfiles=await window.pywebview.api.save_channel_profile(name,chatId,token,editingProfileId);
+  config.profiles=channelDialogProfiles;
+  config.selected_profile_id=editingProfileId||channelDialogProfiles[channelDialogProfiles.length-1]?.profile_id||null;
+  refreshChannelSelect();
+  channelSelect.value=config.selected_profile_id||'';
+  document.getElementById('status').textContent='Настройки канала сохранены.';
+  closeChannelDialog();
+ }catch(error){
+  setChannelDialogError('Не удалось сохранить канал: '+(error&&error.message?error.message:String(error)));
+ }finally{
+  button.disabled=false;
+ }
+});
+function refreshChannelSelect(){
+ channelSelect.replaceChildren();
+ for(const profile of (config.profiles||[])){
+  const option=document.createElement('option');
+  option.value=profile.profile_id;
+  option.textContent=profile.name+' — '+profile.chat_id;
+  channelSelect.append(option);
+ }
+ if(config.selected_profile_id)channelSelect.value=config.selected_profile_id;
+ if(!channelSelect.value&&channelSelect.options.length)channelSelect.selectedIndex=0;
 }
 document.getElementById('manage').onclick=manageProfiles;
 let statusPolling=false;

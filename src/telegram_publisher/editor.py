@@ -64,11 +64,12 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 <div class="publish-options">
 <label for="channel">Канал:</label><select id="channel" aria-label="Канал"></select>
 <label for="mode">Способ публикации:</label><select id="mode" aria-label="Способ публикации">
-<option value="rich">Рич-сообщение (полноценное форматирование, размер до 32768 символов)</option>
 <option value="plain">Обычное сообщение (минимальное форматирование, размер до 4096 символов)</option>
-<option value="rich_series">Серия рич-сообщений</option>
-<option value="plain_series">Серия обычных сообщений</option>
+<option value="rich">Рич-сообщение (полноценное форматирование, размер до 32768 символов)</option>
 <option value="album">Альбом из 2–10 медиа с общей подписью (до 1024 символов)</option>
+<option value="plain_series">Серия обычных сообщений</option>
+<option value="rich_series">Серия рич-сообщений</option>
+<option value="album_series">Серия альбомов (2–10 медиа и отдельная подпись на каждый альбом)</option>
 </select>
 <label><input id="series" type="checkbox"> Разбить на серию постов</label>
 </div>
@@ -379,7 +380,7 @@ function draftFilename(){
 function applyDraft(draft){
  if(!draft||draft.format!=='telegram-publisher-draft'||draft.version!==1||
     typeof draft.html!=='string'||
-    !['rich','plain','rich_series','plain_series','album'].includes(draft.mode)||
+    !['rich','plain','rich_series','plain_series','album','album_series'].includes(draft.mode)||
     typeof draft.series!=='boolean'){
   throw new Error('Файл не является поддерживаемым черновиком Telegram Publisher.');
  }
@@ -483,8 +484,8 @@ document.getElementById('media').onclick=insertMediaFromUrl;
 document.getElementById('local-media').onclick=insertMediaFromFile;
 document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,Number(prompt('Количество строк','2'))||2));const cols=Math.max(1,Math.min(10,Number(prompt('Количество столбцов','2'))||2));let table='<table><tbody>';for(let r=0;r<rows;r++){table+='<tr>';for(let c=0;c<cols;c++)table+='<td><br></td>';table+='</tr>'}table+='</tbody></table><p><br></p>';editor.focus();document.execCommand('insertHTML',false,table)};
 const seriesStatus=document.getElementById('series-status');
-function isAlbumMode(){return modeSelect.value==='album'}
-function isSeriesMode(){return !isAlbumMode()&&(modeSelect.value.endsWith('_series')||seriesCheckbox.checked)}
+function isAlbumMode(){return modeSelect.value==='album'||modeSelect.value==='album_series'}
+function isSeriesMode(){return modeSelect.value.endsWith('_series')||(!isAlbumMode()&&seriesCheckbox.checked)}
 function isRichMode(){return modeSelect.value==='rich'||modeSelect.value==='rich_series'||modeSelect.value==='media_text'}
 function messageLimit(){return isAlbumMode()?1024:(isRichMode()?32768:4096)}
 function makeBreak(){
@@ -537,7 +538,7 @@ function updateSeriesStatus(){
  seriesStatus.hidden=!hasContent;
  const overflow=lengths.some(length=>length>limit);
  const tooMuchMedia=enforceSingleMedia&&mediaCounts.some(count=>count>1);
- const albumInvalid=isAlbumMode()&&(mediaCounts[0]<2||mediaCounts[0]>10);
+ const albumInvalid=isAlbumMode()&&mediaCounts.some(count=>count<2||count>10);
  seriesStatus.classList.toggle('warning',overflow||tooMuchMedia||albumInvalid);
  if(!hasContent){seriesStatus.textContent='';return true}
  seriesStatus.textContent=parts.map((part,index)=>{
@@ -755,7 +756,7 @@ function insertBreakAtSelection(){
 document.getElementById('insert-break').addEventListener('click',insertBreakAtSelection);
 editor.addEventListener('input',()=>{updatePlainCompatibility();updateSeriesStatus()});
 modeSelect.addEventListener('change',()=>{
- if(editor.querySelector('[data-local-file]')&&!['rich','rich_series','album'].includes(modeSelect.value)){
+ if(editor.querySelector('[data-local-file]')&&!['rich','rich_series','album','album_series'].includes(modeSelect.value)){
   alert('Локальные медиа поддерживаются только в рич-сообщениях и альбомах. Чтобы использовать обычный формат, замените локальные файлы публичными URL или выберите совместимый способ публикации.');
   modeSelect.value=lastModeValue;
   updateModeUI();
@@ -867,12 +868,15 @@ MANUAL_HTML = r"""<!doctype html>
 <p>Основная область окна — визуальный редактор. Панель инструментов позволяет применять форматирование, создавать списки, заголовки, цитаты, ссылки и таблицы. Кнопка «Медиа по URL» добавляет изображение или видео по публичной ссылке. В зависимости от выбранного способа публикации доступны разные инструменты редактирования. Если выбранный способ публикации не поддерживает отдельные элементы оформления, приложение преобразует их в доступный формат.</p>
 <h2>Выбор способа публикации</h2>
 <p>Обычные сообщения поддерживают базовое форматирование: жирный шрифт, курсив, подчёркивание, зачёркивание, гиперссылки и цитаты. Для прикрепления одного изображения или видео используется скрытая ссылка, которую Telegram преобразует в предпросмотр. Максимальная длина сообщения — 4096 символов. Локальные медиа в обычном формате не поддерживаются: используйте публичный URL или выберите рич-сообщение либо альбом.</p>
-<p>Рич-сообщения позволяют более сложное форматирование. Для длинных публикаций можно выбрать серию сообщений. Режим «Альбом» отправляет от 2 до 10 изображений и видео с общей подписью длиной до 1024 символов. Для альбома можно использовать прямые публичные URL или кнопку «Медиа из файла».</p>
+<p>Рич-сообщения позволяют более сложное форматирование. Для длинных публикаций можно выбрать серию сообщений. Режим «Альбом» отправляет от 2 до 10 изображений и видео с общей подписью длиной до 1024 символов. «Серия альбомов» позволяет создать несколько альбомов; каждый блок между разрывами становится отдельным альбомом со своей подписью и должен содержать от 2 до 10 медиа. Для альбомов можно использовать прямые публичные URL или кнопку «Медиа из файла».</p>
 <p>В режиме серии кнопка «Разрыв сообщения» вставляет границу в текущем месте. Разрыв можно выбрать и удалить. Перед публикацией проверяйте предупреждения о длине текста и количестве медиа.</p>
 <h2>Настройка каналов</h2>
 <p>В нижней части окна нажмите «Настроить каналы…», чтобы добавить один или несколько профилей. Для каждого профиля укажите название, идентификатор канала и токен бота, которому разрешено публиковать сообщения в этом канале. Публикации отправляются от имени бота.</p>
 <h2>Публикация</h2>
 <p>После нажатия «Опубликовать» для обычных сообщений открывается окно финальной правки с текстом, который будет передан Telegram. После редактирования публикацию можно подтвердить или отменить. Для рич-сообщений отдельное окно финальной правки не открывается. Строка состояния внизу редактора показывает ход работы и результат.</p>
+<hr>
+<h2>История версий</h2>
+<ul><li><b>1.1.0</b> — добавлена публикация альбомов.</li><li><b>1.0.0</b> — базовый функционал приложения: визуальный редактор, импорт публикаций, черновики, профили каналов, обычные и рич-сообщения и их серии.</li></ul>
 </article></body></html>""".replace("{{VERSION}}", __version__)
 
 class EditorApi:
@@ -957,7 +961,7 @@ class EditorApi:
             draft.get("format") != "telegram-publisher-draft"
             or draft.get("version") != 1
             or not isinstance(draft.get("html"), str)
-            or draft.get("mode") not in {"rich", "plain", "rich_series", "plain_series", "album"}
+            or draft.get("mode") not in {"rich", "plain", "rich_series", "plain_series", "album", "album_series"}
             or not isinstance(draft.get("series"), bool)
             or (draft.get("profile_id") is not None and not isinstance(draft.get("profile_id"), str))
         ):

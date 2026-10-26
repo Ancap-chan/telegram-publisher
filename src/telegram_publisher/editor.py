@@ -14,6 +14,7 @@ import webview
 from . import __version__
 
 from .importer import import_from_file, import_from_url
+from .profiles import ChannelProfile, delete_profile, load_profiles, save_profile
 
 
 EDITOR_HTML = r"""<!doctype html>
@@ -815,7 +816,61 @@ document.getElementById('publish').onclick=async()=>{
   document.getElementById('status').textContent='Не удалось начать публикацию: '+(error&&error.message?error.message:String(error));
  }
 };
-document.getElementById('manage').onclick=async()=>{await window.pywebview.api.finish(currentResult('manage_profiles'))};
+async function manageProfiles(){
+ const status=document.getElementById('status');
+ try{
+  const profiles=await window.pywebview.api.get_profiles();
+  const action=prompt('Управление каналами:\n1 — добавить канал\n2 — изменить канал\n3 — удалить канал\nОтмена — закрыть');
+  if(action===null)return;
+  if(action==='1'){
+   const name=prompt('Название канала:');
+   if(name===null)return;
+   const chatId=prompt('Идентификатор канала (@имя или числовой ID):');
+   if(chatId===null)return;
+   const token=prompt('Токен бота:');
+   if(token===null)return;
+   config.profiles=await window.pywebview.api.save_channel_profile(name,chatId,token,null);
+   config.selected_profile_id=config.profiles[config.profiles.length-1]?.profile_id||null;
+  }else if(action==='2'||action==='3'){
+   if(!profiles.length){status.textContent='Сначала добавьте канал.';return;}
+   const list=profiles.map((p,i)=>(i+1)+' — '+p.name+' ('+p.chat_id+')').join('\n');
+   const choice=prompt('Введите номер канала:\n'+list);
+   if(choice===null)return;
+   const index=Number(choice)-1;
+   if(!Number.isInteger(index)||index<0||index>=profiles.length){status.textContent='Неверный номер канала.';return;}
+   const profile=profiles[index];
+   if(action==='3'){
+    if(!confirm('Удалить канал «'+profile.name+'»?'))return;
+    config.profiles=await window.pywebview.api.delete_channel_profile(profile.profile_id);
+    config.selected_profile_id=config.profiles[0]?.profile_id||null;
+   }else{
+    const name=prompt('Название канала:',profile.name);
+    if(name===null)return;
+    const chatId=prompt('Идентификатор канала:',profile.chat_id);
+    if(chatId===null)return;
+    const token=prompt('Новый токен (оставьте пустым, чтобы сохранить прежний):');
+    if(token===null)return;
+    config.profiles=await window.pywebview.api.save_channel_profile(name,chatId,token,profile.profile_id);
+    config.selected_profile_id=profile.profile_id;
+   }
+  }else{
+   status.textContent='Выберите 1, 2 или 3.';
+   return;
+  }
+  channelSelect.replaceChildren();
+  for(const profile of config.profiles){
+   const option=document.createElement('option');
+   option.value=profile.profile_id;
+   option.textContent=profile.name+' — '+profile.chat_id;
+   channelSelect.append(option);
+  }
+  if(config.selected_profile_id)channelSelect.value=config.selected_profile_id;
+  status.textContent=config.profiles.length?'Список каналов обновлён.':'Каналы не настроены.';
+ }catch(error){
+  status.textContent='Не удалось изменить список каналов: '+(error&&error.message?error.message:String(error));
+ }
+}
+document.getElementById('manage').onclick=manageProfiles;
 let statusPolling=false;
 async function pollEditorStatus(){
  if(statusPolling||!window.pywebview||!window.pywebview.api)return;
@@ -887,6 +942,41 @@ class EditorApi:
         self.status_path = status_path
         self.window = window
         self.manual_window = None
+
+    @staticmethod
+    def _public_profile(profile: ChannelProfile) -> dict[str, str]:
+        """Вернуть настройки канала без секретного токена."""
+        return {
+            "profile_id": profile.profile_id,
+            "name": profile.name,
+            "chat_id": profile.chat_id,
+        }
+
+    def get_profiles(self) -> list[dict[str, str]]:
+        """Получить список каналов без раскрытия токенов ботов."""
+        return [self._public_profile(profile) for profile in load_profiles()]
+
+    def save_channel_profile(
+        self, name: str, chat_id: str, token: str = "", profile_id: str | None = None
+    ) -> list[dict[str, str]]:
+        """Создать или обновить канал; при редактировании пустой токен сохраняется прежним."""
+        if profile_id and not token.strip():
+            existing = next(
+                (profile for profile in load_profiles() if profile.profile_id == profile_id),
+                None,
+            )
+            if existing is None or not existing.token:
+                raise ValueError("Для этого канала нужно указать токен бота.")
+            token = existing.token
+        save_profile(name, token, chat_id, profile_id)
+        return self.get_profiles()
+
+    def delete_channel_profile(self, profile_id: str) -> list[dict[str, str]]:
+        """Удалить выбранный канал и вернуть актуальный список."""
+        if not profile_id:
+            raise ValueError("Не выбран канал для удаления.")
+        delete_profile(profile_id)
+        return self.get_profiles()
 
     def finish(self, result: dict) -> None:
         """Передать запрос приложению; настройки не закрывают редактор."""
@@ -1060,7 +1150,7 @@ def main() -> None:
     status_path = output_path.with_name("editor-status.json")
     status_path.unlink(missing_ok=True)
     api = EditorApi(output_path, status_path, window)
-    window.expose(api.finish, api.publish, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual, api.select_media_files)
+    window.expose(api.finish, api.publish, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual, api.select_media_files, api.get_profiles, api.save_channel_profile, api.delete_channel_profile)
 
     def initialize() -> None:
         window.evaluate_js(

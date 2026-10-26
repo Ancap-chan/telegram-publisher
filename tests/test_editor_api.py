@@ -2,7 +2,9 @@
 
 import json
 
+import telegram_publisher.editor as editor_module
 from telegram_publisher.editor import EditorApi
+from telegram_publisher.profiles import ChannelProfile
 
 
 class FakeWindow:
@@ -55,3 +57,63 @@ def test_editor_api_ignores_invalid_status_json(tmp_path):
     status_path.write_text("{", encoding="utf-8")
 
     assert api.get_status() is None
+
+
+def test_editor_api_returns_profiles_without_tokens(tmp_path, monkeypatch):
+    profiles = [
+        ChannelProfile("profile-1", "Основной канал", "@main", "секретный-токен"),
+    ]
+    monkeypatch.setattr(editor_module, "load_profiles", lambda: profiles)
+    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+
+    assert api.get_profiles() == [
+        {"profile_id": "profile-1", "name": "Основной канал", "chat_id": "@main"}
+    ]
+
+
+def test_editor_api_keeps_existing_token_when_editing_profile(tmp_path, monkeypatch):
+    profiles = [
+        ChannelProfile("profile-1", "Старое название", "@old", "секретный-токен"),
+    ]
+    saved = {}
+    monkeypatch.setattr(editor_module, "load_profiles", lambda: profiles)
+
+    def save_profile(name, token, chat_id, profile_id=None):
+        saved.update(name=name, token=token, chat_id=chat_id, profile_id=profile_id)
+
+    monkeypatch.setattr(editor_module, "save_profile", save_profile)
+    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+
+    api.save_channel_profile("Новое название", "@new", "", "profile-1")
+
+    assert saved == {
+        "name": "Новое название",
+        "token": "секретный-токен",
+        "chat_id": "@new",
+        "profile_id": "profile-1",
+    }
+
+
+def test_editor_api_requires_token_when_editing_profile_without_saved_secret(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        editor_module,
+        "load_profiles",
+        lambda: [ChannelProfile("profile-1", "Канал", "@channel", "")],
+    )
+    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+
+    with pytest.raises(ValueError, match="нужно указать токен"):
+        api.save_channel_profile("Канал", "@channel", "", "profile-1")
+
+
+def test_editor_api_deletes_profile_and_returns_remaining_profiles(tmp_path, monkeypatch):
+    deleted = []
+    monkeypatch.setattr(editor_module, "delete_profile", lambda profile_id: deleted.append(profile_id))
+    monkeypatch.setattr(editor_module, "load_profiles", lambda: [])
+
+    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+
+    assert api.delete_channel_profile("profile-1") == []
+    assert deleted == ["profile-1"]

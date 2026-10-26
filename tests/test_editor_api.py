@@ -14,7 +14,7 @@ class FakeWindow:
     """Минимальная заглушка окна для проверки протокола обмена."""
 
 
-def test_editor_api_writes_publish_request(tmp_path):
+def test_editor_api_finish_writes_publish_request(tmp_path):
     output_path = tmp_path / "result.json"
     api = EditorApi(output_path, tmp_path / "status.json", FakeWindow())
     request = {
@@ -24,7 +24,7 @@ def test_editor_api_writes_publish_request(tmp_path):
         "profile_id": "profile-1",
     }
 
-    api.publish(request)
+    api.finish(request)
 
     assert json.loads(output_path.read_text(encoding="utf-8")) == request
 

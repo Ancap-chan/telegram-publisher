@@ -28,7 +28,7 @@ from telegram_publisher.publishing import (
     prepare_plain_messages,
     PartialPublicationError,
 )
-from telegram_publisher.controller import PublicationController, PublicationRequest
+from telegram_publisher.controller import PublicationController, PublicationRequest, PublicationSession
 
 
 class _PreviewTextParser(__import__("html.parser", fromlist=["HTMLParser"]).HTMLParser):
@@ -59,22 +59,23 @@ class PublisherWindow:
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
+        self.session = PublicationSession()
         self.image_path: str | None = None
         self.html_content = ""
-        self.editor_parts: list[str] | None = None
+        self.session.editor_parts: list[str] | None = None
         self.editor_mode = "rich"
         self.editor_status = ""
-        self.publishing_from_editor = False
+        self.session.publishing_from_editor = False
         self._updating_preview = False
         self.editor_process: subprocess.Popen | None = None
         self.editor_tempdir: tempfile.TemporaryDirectory | None = None
         self.editor_status_path: Path | None = None
-        self.send_in_progress = False
-        self.finalized_plain_parts: list[str] | None = None
-        self.pending_messages: list[str] = []
-        self.pending_sent_count = 0
-        self.pending_retry_after = 0.0
-        self.resuming_pending = False
+        self.session.send_in_progress = False
+        self.session.finalized_plain_parts = None
+        self.session.pending_messages = []
+        self.session.pending_sent_count = 0
+        self.session.pending_retry_after = 0.0
+        self.session.resuming_pending = False
 
         self.profiles = self._load_profiles()
         self.selected_profile_id: str | None = None
@@ -376,7 +377,7 @@ class PublisherWindow:
             elif running and action == "publish":
                 result_path.unlink(missing_ok=True)
                 self._apply_editor_result(result)
-                self.publishing_from_editor = True
+                self.session.publishing_from_editor = True
                 self.status.configure(text="Подготовка публикации")
                 self._send()
             elif running and action == "manage_profiles":
@@ -405,7 +406,7 @@ class PublisherWindow:
         if action == "publish":
             # Защитный путь на случай, если процесс завершился до обработки запроса.
             self._apply_editor_result(result)
-            self.publishing_from_editor = True
+            self.session.publishing_from_editor = True
             self._send()
             return
 
@@ -507,8 +508,8 @@ class PublisherWindow:
             return
 
         self._apply_editor_result(result)
-        self.finalized_plain_parts = [str(part) for part in outcome["messages"]]
-        self.publishing_from_editor = True
+        self.session.finalized_plain_parts = [str(part) for part in outcome["messages"]]
+        self.session.publishing_from_editor = True
         self.status.configure(text="Подготовка публикации после финальной правки")
         self._send()
 
@@ -517,7 +518,7 @@ class PublisherWindow:
             return
         self.html_content = str(result.get("html", ""))
         raw_parts = result.get("parts")
-        self.editor_parts = [str(part) for part in raw_parts] if isinstance(raw_parts, list) and raw_parts else None
+        self.session.editor_parts = [str(part) for part in raw_parts] if isinstance(raw_parts, list) and raw_parts else None
         self.editor_mode = str(result.get("mode", "rich"))
         self.selected_profile_id = result.get("profile_id") or None
         self.series_var.set(bool(result.get("series", False)))
@@ -654,9 +655,9 @@ class PublisherWindow:
         self._update_publication_options()
 
     def _send(self) -> None:
-        if self.send_in_progress:
+        if self.session.send_in_progress:
             return
-        from_editor = self.publishing_from_editor
+        from_editor = self.session.publishing_from_editor
         profile = next(
             (item for item in self.profiles if item.profile_id == self.selected_profile_id),
             None,
@@ -664,8 +665,8 @@ class PublisherWindow:
         if profile is None or not profile.token or not profile.chat_id:
             if from_editor:
                 self._write_editor_status("Настройки канала не заполнены. Проверьте профиль и токен.")
-                self.publishing_from_editor = False
-                self.finalized_plain_parts = None
+                self.session.publishing_from_editor = False
+                self.session.finalized_plain_parts = None
             else:
                 messagebox.showerror(
                     "Настройки не заполнены",
@@ -677,7 +678,7 @@ class PublisherWindow:
         plain_content = self.text.get("1.0", "end-1c").strip()
         mode = (
             "plain_prepared"
-            if from_editor and self.finalized_plain_parts is not None
+            if from_editor and self.session.finalized_plain_parts is not None
             else self.editor_mode
             if from_editor
             else self.mode_values.get(self.mode_combo.get(), "auto")
@@ -686,8 +687,8 @@ class PublisherWindow:
         if not plain_content and not self.image_path and not content.strip():
             if from_editor:
                 self._write_editor_status("Добавьте текст, изображение или видео перед публикацией.")
-                self.publishing_from_editor = False
-                self.finalized_plain_parts = None
+                self.session.publishing_from_editor = False
+                self.session.finalized_plain_parts = None
             else:
                 messagebox.showwarning("Пустая публикация", "Добавьте текст или выберите изображение.")
             return
@@ -697,8 +698,8 @@ class PublisherWindow:
             warning = "Для текста длиннее 32768 символов используйте публикацию в виде серии постов."
             if from_editor:
                 self._write_editor_status(warning)
-                self.publishing_from_editor = False
-                self.finalized_plain_parts = None
+                self.session.publishing_from_editor = False
+                self.session.finalized_plain_parts = None
             else:
                 messagebox.showwarning("Слишком длинный текст", warning, parent=self.root)
             return
@@ -726,12 +727,12 @@ class PublisherWindow:
         ):
             return
 
-        self.send_in_progress = True
+        self.session.send_in_progress = True
         self.send_button.configure(state=tk.DISABLED)
         self.status.configure(text="Отправка…")
         self._write_editor_status("Отправка публикации…")
-        initial_delay = self.pending_retry_after
-        self.pending_retry_after = 0.0
+        initial_delay = self.session.pending_retry_after
+        self.session.pending_retry_after = 0.0
         thread = threading.Thread(
             target=self._send_in_background,
             args=(
@@ -740,9 +741,9 @@ class PublisherWindow:
                 self.image_path,
                 mode,
                 series,
-                self.finalized_plain_parts
-                if from_editor and self.finalized_plain_parts is not None
-                else self.editor_parts if from_editor and series else None,
+                self.session.finalized_plain_parts
+                if from_editor and self.session.finalized_plain_parts is not None
+                else self.session.editor_parts if from_editor and series else None,
                 initial_delay,
             ),
             daemon=True,
@@ -781,13 +782,8 @@ class PublisherWindow:
 
     def _handle_partial_publication(self, error: PartialPublicationError) -> None:
         """Сохранить остаток серии после подтверждённого отказа Telegram по flood control."""
-        self.send_in_progress = False
+        total_sent = self.session.record_partial(error)
         self.send_button.configure(state=tk.NORMAL)
-        total_sent = self.pending_sent_count + error.sent_count if self.resuming_pending else error.sent_count
-        self.pending_messages = list(error.pending_messages)
-        self.pending_sent_count = total_sent
-        self.resuming_pending = False
-        self.pending_retry_after = error.retry_after + 1.0
         self.resend_button.configure(state=tk.NORMAL)
         self.status.configure(
             text=f"Отправлено: {total_sent}; ожидают отправки: {len(error.pending_messages)}"
@@ -830,7 +826,7 @@ class PublisherWindow:
 
     def _review_pending_messages(self) -> None:
         """Показать остаток серии, разрешить правку и удаление отдельных сообщений."""
-        if not self.pending_messages:
+        if not self.session.pending_messages:
             messagebox.showinfo("Нет сообщений для отправки", "Не осталось сообщений для досылки.", parent=self.root)
             self.resend_button.configure(state=tk.DISABLED)
             return
@@ -845,16 +841,16 @@ class PublisherWindow:
         ttk.Label(
             frame,
             text=(
-                f"Успешно отправлено ранее: {self.pending_sent_count}. Ниже — оставшиеся сообщения. "
+                f"Успешно отправлено ранее: {self.session.pending_sent_count}. Ниже — оставшиеся сообщения. "
                 "Выберите вкладку, исправьте текст или удалите сообщение. Перед повторной отправкой "
-                f"будет выдержана пауза не менее {math.ceil(self.pending_retry_after)} сек."
+                f"будет выдержана пауза не менее {math.ceil(self.session.pending_retry_after)} сек."
             ),
             wraplength=850,
         ).pack(anchor=tk.W, pady=(0, 8))
         notebook = ttk.Notebook(frame)
         notebook.pack(fill=tk.BOTH, expand=True)
         editors: list[tk.Text] = []
-        for index, message in enumerate(self.pending_messages, start=self.pending_sent_count + 1):
+        for index, message in enumerate(self.session.pending_messages, start=self.session.pending_sent_count + 1):
             tab = ttk.Frame(notebook, padding=6)
             text_box = tk.Text(tab, wrap=tk.WORD, undo=True, font=("Consolas", 10))
             scrollbar = ttk.Scrollbar(tab, orient=tk.VERTICAL, command=text_box.yview)
@@ -876,7 +872,7 @@ class PublisherWindow:
             notebook.forget(index)
             editors.pop(index)
             if not editors:
-                self.pending_messages = []
+                self.session.pending_messages = []
                 self.resend_button.configure(state=tk.DISABLED)
                 messagebox.showinfo(
                     "Список пуст",
@@ -891,11 +887,8 @@ class PublisherWindow:
             if not messages:
                 messagebox.showwarning("Пустая очередь", "Добавьте текст или удалите окно досылки.", parent=dialog)
                 return
-            self.pending_messages = []
-            self.resuming_pending = True
+            self.session.prepare_retry(messages)
             self.resend_button.configure(state=tk.DISABLED)
-            self.finalized_plain_parts = messages
-            self.publishing_from_editor = True
             dialog.destroy()
             self._send()
 
@@ -910,33 +903,27 @@ class PublisherWindow:
         dialog.grab_set()
 
     def _send_failed(self, error: str) -> None:
-        self.send_in_progress = False
+        self.session.mark_failed()
         self.send_button.configure(state=tk.NORMAL)
         self.status.configure(text="Не удалось отправить публикацию")
-        if self.publishing_from_editor:
+        if self.session.publishing_from_editor:
             self._write_editor_status(f"Ошибка публикации: {error}")
-            self.publishing_from_editor = False
-            self.finalized_plain_parts = None
+            self.session.publishing_from_editor = False
+            self.session.finalized_plain_parts = None
             return
         messagebox.showerror("Ошибка публикации", error, parent=self.root)
 
     def _send_succeeded(self, count: int) -> None:
-        self.send_in_progress = False
-        if self.resuming_pending:
-            count += self.pending_sent_count
-        self.resuming_pending = False
-        self.pending_messages = []
-        self.pending_sent_count = 0
-        self.pending_retry_after = 0.0
+        count = self.session.complete(count)
         self.resend_button.configure(state=tk.DISABLED)
         self.send_button.configure(state=tk.NORMAL)
         self.status.configure(text=f"Опубликовано. Всего отправлено сообщений: {count}")
-        if self.publishing_from_editor:
+        if self.session.publishing_from_editor:
             self._write_editor_status(
                 f"Опубликовано. Отправлено сообщений: {count}",
             )
-            self.publishing_from_editor = False
-            self.finalized_plain_parts = None
+            self.session.publishing_from_editor = False
+            self.session.finalized_plain_parts = None
             return
         messagebox.showinfo("Публикация завершена", f"Отправлено сообщений: {count}", parent=self.root)
 

@@ -3,6 +3,7 @@
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BuildVenv = Join-Path $ProjectRoot ".venv-build"
 $Python = Join-Path $BuildVenv "Scripts\python.exe"
+$BuildWorkPath = Join-Path $env:TEMP ("telegram-publisher-build-" + [guid]::NewGuid().ToString("N"))
 
 $Launcher = Get-Command py -ErrorAction SilentlyContinue
 if (-not $Launcher) {
@@ -41,7 +42,9 @@ try {
         throw "Автоматические тесты не пройдены. Сборка отменена."
     }
 
-    & $Python -m PyInstaller --noconfirm --clean --onefile --windowed --name "Telegram Publisher" --paths "src" --collect-all webview --collect-all clr_loader --collect-all pythonnet "run_app.py"
+    # Используем уникальный временный каталог, чтобы не сталкиваться с заблокированными остатками прошлой сборки.
+    Write-Host "Временные файлы сборки: $BuildWorkPath"
+    & $Python -m PyInstaller --noconfirm --clean --onefile --windowed --workpath $BuildWorkPath --name "Telegram Publisher" --paths "src" --collect-all webview --collect-all clr_loader --collect-all pythonnet "run_app.py"
     if ($LASTEXITCODE -ne 0) {
         throw "Сборка PyInstaller завершилась с ошибкой. Код завершения: $LASTEXITCODE"
     }
@@ -49,6 +52,16 @@ try {
     & $Python -m pip freeze | Set-Content -Encoding utf8 (Join-Path $ProjectRoot "dist\build-dependencies.txt")
     if ($LASTEXITCODE -ne 0) {
         throw "Не удалось сохранить список установленных зависимостей."
+    }
+
+    # Удаление временных файлов не должно отменять уже успешно собранный EXE.
+    if (Test-Path $BuildWorkPath) {
+        try {
+            Remove-Item -LiteralPath $BuildWorkPath -Recurse -Force
+        }
+        catch {
+            Write-Warning "Не удалось удалить временные файлы сборки: $BuildWorkPath"
+        }
     }
 
     $Executable = Join-Path $ProjectRoot "dist\Telegram Publisher.exe"

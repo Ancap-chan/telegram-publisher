@@ -330,16 +330,29 @@ class PublisherWindow:
             encoding="utf-8",
         )
         try:
-            self.editor_process = subprocess.Popen(
-                [
+            if getattr(sys, "frozen", False):
+                command = [
+                    sys.executable,
+                    "--editor",
+                    str(initial_path),
+                    str(result_path),
+                    str(config_path),
+                ]
+                working_directory = None
+            else:
+                command = [
                     sys.executable,
                     "-m",
                     "telegram_publisher.editor",
                     str(initial_path),
                     str(result_path),
                     str(config_path),
-                ],
-                cwd=str(Path(__file__).resolve().parents[2]),
+                ]
+                working_directory = str(Path(__file__).resolve().parents[2])
+
+            self.editor_process = subprocess.Popen(
+                command,
+                cwd=working_directory,
             )
         except Exception as error:
             self.editor_tempdir.cleanup()

@@ -625,6 +625,10 @@ def test_album_prepares_local_photo_and_video(tmp_path) -> None:
         assert len(media) == 2
         assert isinstance(media[0], InputMediaPhoto)
         assert isinstance(media[1], InputMediaVideo)
-        assert media[0].media.read() == b"photo-bytes"
-        assert media[1].media.read() == b"video-bytes"
+        for item, expected in zip(media, (b"photo-bytes", b"video-bytes")):
+            uploaded = item.media
+            if hasattr(uploaded, "input_file_content"):
+                assert uploaded.input_file_content == expected
+            else:
+                assert uploaded.read() == expected
         assert media[0].caption == "Общая подпись"

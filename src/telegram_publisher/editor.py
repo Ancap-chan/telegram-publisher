@@ -1005,7 +1005,10 @@ class EditorApi:
             path = Path(item).resolve()
             suffix = path.suffix.lower()
             if suffix not in image_extensions | video_extensions:
-                continue
+                raise ValueError(
+                    f"Формат файла «{path.name}» не поддерживается. "
+                    "Выберите изображение или видео из списка форматов."
+                )
             if not path.is_file():
                 continue
             selected.append(

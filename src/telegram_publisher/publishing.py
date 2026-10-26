@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from contextlib import ExitStack
 from copy import copy
 import html
 import json
@@ -317,7 +318,25 @@ def _rich_payload(
         url = html.unescape(source.group(2)).strip()
         media_type = "video" if tag.lower().startswith("<video") else "photo"
         media_id = f"publication_media_{len(media) + 1}"
-        if url.lower().startswith(("https://", "http://")):
+        local_source = re.search(
+            r"""\bdata-local-file\s*=\s*(['"])(.*?)\1""",
+            tag,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if local_source:
+            path = Path(html.unescape(local_source.group(2))).expanduser()
+            if not path.is_file():
+                raise ValueError(f"Локальный медиафайл не найден: {path}")
+            field = f"local_media_{len(upload_files) + 1}"
+            filename = path.name.replace('"', "_").replace("\r", "_").replace("\n", "_")
+            upload_files.append({
+                "field": field,
+                "filename": filename,
+                "mime_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+                "data": path.read_bytes(),
+            })
+            media.append({"id": media_id, "media": {"type": media_type, "media": f"attach://{field}"}})
+        elif url.lower().startswith(("https://", "http://")):
             media.append({"id": media_id, "media": {"type": media_type, "media": url}})
         elif media_type == "photo" and re.match(r"^data:image/(png|jpeg|jpg|gif|webp);base64,", url, re.I):
             header, encoded = url.split(",", 1)
@@ -376,7 +395,11 @@ def _rich_payload(
 
 
 
-def _prepare_album_media(content: str, image_path: str | None = None) -> list[InputMediaPhoto | InputMediaVideo]:
+def _prepare_album_media(
+    content: str,
+    image_path: str | None = None,
+    file_stack: ExitStack | None = None,
+) -> list[InputMediaPhoto | InputMediaVideo]:
     """Проверить медиагруппу и подготовить её элементы для Telegram."""
     if image_path:
         raise ValueError("Для альбома добавляйте изображения и видео через публичные URL в редакторе.")
@@ -386,17 +409,27 @@ def _prepare_album_media(content: str, image_path: str | None = None) -> list[In
     if not 2 <= len(media_nodes) <= 10:
         raise ValueError("Для альбома требуется от 2 до 10 изображений или видео.")
 
-    sources: list[tuple[str, str]] = []
+    sources: list[tuple[str, object]] = []
     for index, node in enumerate(media_nodes, start=1):
         source_node = node.find("source") if node.name == "video" else None
         source = str(node.get("src") or (source_node.get("src") if source_node else "")).strip()
-        if not re.match(r"^https?://[^/\s]+", source, re.IGNORECASE):
-            raise ValueError(
-                f"Медиа №{index} не имеет прямого публичного HTTP(S)-адреса. "
-                "Для альбома используйте прямые URL файлов."
-            )
         media_type = "video" if node.name == "video" else "photo"
-        sources.append((media_type, source))
+        local_source = str(node.get("data-local-file") or "").strip()
+        if local_source:
+            if file_stack is None:
+                raise ValueError("Для загрузки локальных медиа требуется файловый контекст.")
+            path = Path(local_source).expanduser()
+            if not path.is_file():
+                raise ValueError(f"Локальный медиафайл не найден: {path}")
+            source_value: object = file_stack.enter_context(path.open("rb"))
+        elif re.match(r"^https?://[^/\s]+", source, re.IGNORECASE):
+            source_value = source
+        else:
+            raise ValueError(
+                f"Медиа №{index} не имеет прямого публичного HTTP(S)-адреса или локального файла. "
+                "Выберите файл с компьютера или используйте прямой URL."
+            )
+        sources.append((media_type, source_value))
         node.decompose()
 
     caption_html = _sanitize_plain_html(soup.decode_contents())
@@ -575,9 +608,10 @@ async def send_publication(
     requested_mode = mode
     parts = [part.strip() for part in parts or [] if part.strip()]
     if mode == "album":
-        media = _prepare_album_media(text, image_path)
-        async with Bot(token=token) as bot:
-            await bot.send_media_group(chat_id=chat_id, media=media)
+        with ExitStack() as file_stack:
+            media = _prepare_album_media(text, image_path, file_stack)
+            async with Bot(token=token) as bot:
+                await bot.send_media_group(chat_id=chat_id, media=media)
         return len(media)
 
     if not text and not image_path:

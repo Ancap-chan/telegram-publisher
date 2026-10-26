@@ -79,6 +79,7 @@ footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;
 </div>
 <div class="publish-options">
 <button id="manage">Настроить каналы…</button>
+<button id="retry-pending" hidden>Повторить оставшиеся сообщения</button>
 <button id="publish">Опубликовать</button>
 </div>
 <span class="status" id="status">Вставка через Ctrl+V сохраняет доступное форматирование. Медиа можно добавлять по публичному URL, а в рич-сообщениях и альбомах — также из локальных файлов.</span>
@@ -818,6 +819,16 @@ document.getElementById('publish').onclick=async()=>{
   document.getElementById('status').textContent='Не удалось начать публикацию: '+(error&&error.message?error.message:String(error));
  }
 };
+document.getElementById('retry-pending').onclick=async()=>{
+ const button=document.getElementById('retry-pending');
+ button.disabled=true;
+ document.getElementById('status').textContent='Подготовка повторной отправки…';
+ try{await window.pywebview.api.retry_pending();}
+ catch(error){
+  button.disabled=false;
+  document.getElementById('status').textContent='Не удалось начать повторную отправку: '+(error&&error.message?error.message:String(error));
+ }
+};
 async function manageProfiles(){
  const status=document.getElementById('status');
  try{
@@ -893,9 +904,15 @@ async function pollEditorStatus(){
     channelSelect.value=update.selected_profile_id||'';
     if(!channelSelect.value&&channelSelect.options.length)channelSelect.selectedIndex=0;
    }
+   const retryButton=document.getElementById('retry-pending');
+   retryButton.hidden=!update.can_retry;
+   retryButton.disabled=Boolean(update.message&&update.message.startsWith('Отправка'));
    if(update.message){
     document.getElementById('status').textContent=update.message;
-    if(!update.message.startsWith('Отправка'))document.getElementById('publish').disabled=false;
+    if(!update.message.startsWith('Отправка')&&!update.message.startsWith('Повторная отправка')){
+     document.getElementById('publish').disabled=false;
+     retryButton.disabled=false;
+    }
    }
   }
  }catch(error){}
@@ -947,6 +964,10 @@ class EditorApi:
         self._status_lock = threading.Lock()
         self._status_update: dict | None = None
         self._publishing = False
+        self._pending_profile: ChannelProfile | None = None
+        self._pending_messages: list[str] = []
+        self._pending_sent_count = 0
+        self._pending_retry_after = 0.0
 
     @staticmethod
     def _public_profile(profile: ChannelProfile) -> dict[str, str]:
@@ -1007,27 +1028,73 @@ class EditorApi:
         self._publishing = True
         self._set_status("Отправка публикации…")
 
+        self._pending_profile = profile
+        self._pending_messages = []
+        self._pending_sent_count = 0
+        self._pending_retry_after = 0.0
+        self._start_publication(request)
+
+    def retry_pending(self) -> None:
+        """Повторить отправку оставшихся сообщений после ограничения Telegram."""
+        if self._publishing:
+            raise ValueError("Публикация уже выполняется.")
+        if self._pending_profile is None or not self._pending_messages:
+            raise ValueError("Нет сообщений, ожидающих повторной отправки.")
+        request = PublicationRequest(
+            profile=self._pending_profile,
+            content="",
+            image_path=None,
+            mode="plain_prepared",
+            series=True,
+            parts=list(self._pending_messages),
+            initial_delay=max(1.0, self._pending_retry_after + 1.0),
+        )
+        self._start_publication(request, retry=True)
+
+    def _start_publication(self, request: PublicationRequest, retry: bool = False) -> None:
+        """Выполнить запрос в фоне и сохранить состояние частичной отправки."""
+        self._publishing = True
+        self._set_status(
+            "Повторная отправка оставшихся сообщений…" if retry else "Отправка публикации…"
+        )
+
         def run_publication() -> None:
             try:
                 count = PublicationController().publish(request)
             except PartialPublicationError as error:
+                if retry:
+                    self._pending_sent_count += error.sent_count
+                else:
+                    self._pending_sent_count = error.sent_count
+                self._pending_messages = list(error.pending_messages)
+                self._pending_retry_after = max(1.0, float(error.retry_after))
                 self._set_status(
-                    f"Часть публикации отправлена: {error.sent_count}. Осталось сообщений: {len(error.pending_messages)}. "
-                    "Повторную отправку можно будет настроить на следующем этапе."
+                    f"Часть публикации отправлена: {self._pending_sent_count}. Осталось сообщений: "
+                    f"{len(self._pending_messages)}. Повторить можно через "
+                    f"{int(self._pending_retry_after + 0.999)} сек.",
+                    can_retry=True,
                 )
             except Exception as error:
                 self._set_status(f"Ошибка публикации: {error}")
             else:
-                self._set_status(f"Опубликовано. Отправлено сообщений: {count}", clear=True)
+                total_sent = self._pending_sent_count + count if retry else count
+                self._pending_messages = []
+                self._pending_profile = None
+                self._pending_sent_count = 0
+                self._pending_retry_after = 0.0
+                self._set_status(f"Опубликовано. Отправлено сообщений: {total_sent}", clear=True)
             finally:
                 self._publishing = False
 
         threading.Thread(target=run_publication, daemon=True).start()
 
-    def _set_status(self, message: str, clear: bool = False) -> None:
+    def _set_status(self, message: str, clear: bool = False, can_retry: bool = False) -> None:
         """Сохранить однократное уведомление для редактора."""
         with self._status_lock:
-            self._status_update = {"message": message, "clear": clear}
+            payload = {"message": message, "clear": clear}
+            if can_retry:
+                payload["can_retry"] = True
+            self._status_update = payload
 
     def get_status(self) -> dict | None:
         """Получить уведомление о публикации или от старого управляющего процесса."""
@@ -1198,7 +1265,7 @@ def main() -> None:
     status_path = output_path.with_name("editor-status.json")
     status_path.unlink(missing_ok=True)
     api = EditorApi(output_path, status_path, window)
-    window.expose(api.finish, api.publish, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual, api.select_media_files, api.get_profiles, api.save_channel_profile, api.delete_channel_profile)
+    window.expose(api.finish, api.publish, api.retry_pending, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual, api.select_media_files, api.get_profiles, api.save_channel_profile, api.delete_channel_profile)
 
     def initialize() -> None:
         window.evaluate_js(

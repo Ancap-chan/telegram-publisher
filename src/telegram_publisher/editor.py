@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 import sys
 import re
 from pathlib import Path
@@ -1014,7 +1016,7 @@ class EditorApi:
             selected.append(
                 {
                     "path": str(path),
-                    "uri": path.as_uri(),
+                    "uri": f"data:{mimetypes.guess_type(path.name)[0] or 'application/octet-stream'};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}",
                     "type": "video" if suffix in video_extensions else "photo",
                 }
             )

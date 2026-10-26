@@ -1,11 +1,11 @@
 """Точка входа приложения."""
 
-from telegram_publisher.gui import run_app
+from telegram_publisher.editor import main as run_editor
 
 
 def main() -> None:
-    """Запустить графический интерфейс."""
-    run_app()
+    """Запустить визуальный редактор как главное окно приложения."""
+    run_editor()
 
 
 if __name__ == "__main__":

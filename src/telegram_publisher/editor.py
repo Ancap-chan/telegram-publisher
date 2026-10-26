@@ -820,7 +820,7 @@ async function manageProfiles(){
  const status=document.getElementById('status');
  try{
   const profiles=await window.pywebview.api.get_profiles();
-  const action=prompt('Управление каналами:\\n1 — добавить канал\\n2 — изменить канал\\n3 — удалить канал\\nОтмена — закрыть');
+  const action=prompt('Управление каналами:\n1 — добавить канал\n2 — изменить канал\n3 — удалить канал\nОтмена — закрыть');
   if(action===null)return;
   if(action==='1'){
    const name=prompt('Название канала:');
@@ -833,8 +833,8 @@ async function manageProfiles(){
    config.selected_profile_id=config.profiles[config.profiles.length-1]?.profile_id||null;
   }else if(action==='2'||action==='3'){
    if(!profiles.length){status.textContent='Сначала добавьте канал.';return;}
-   const list=profiles.map((p,i)=>(i+1)+' — '+p.name+' ('+p.chat_id+')').join('\\n');
-   const choice=prompt('Введите номер канала:\\n'+list);
+   const list=profiles.map((p,i)=>(i+1)+' — '+p.name+' ('+p.chat_id+')').join('\n');
+   const choice=prompt('Введите номер канала:\n'+list);
    if(choice===null)return;
    const index=Number(choice)-1;
    if(!Number.isInteger(index)||index<0||index>=profiles.length){status.textContent='Неверный номер канала.';return;}

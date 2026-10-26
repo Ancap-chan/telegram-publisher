@@ -154,14 +154,43 @@ def test_editor_api_publishes_rich_content_in_background(tmp_path, monkeypatch):
     assert api.get_status() == {"message": "Опубликовано. Отправлено сообщений: 2", "clear": True}
 
 
-def test_editor_api_keeps_plain_messages_on_legacy_review_flow(tmp_path):
-    output_path = tmp_path / "result.json"
-    api = EditorApi(output_path, tmp_path / "status.json", FakeWindow())
-    request = {"action": "review_publish", "html": "<p>Текст</p>", "mode": "plain"}
+@pytest.mark.parametrize("mode", ["plain", "plain_series"])
+def test_editor_api_publishes_plain_content_without_review_flow(tmp_path, monkeypatch, mode):
+    profile = ChannelProfile("profile-1", "Канал", "@channel", "token")
+    captured = {}
+    monkeypatch.setattr(editor_module, "load_profiles", lambda: [profile])
 
-    api.publish(request)
+    class ImmediateThread:
+        def __init__(self, target, daemon=False):
+            self.target = target
 
-    assert json.loads(output_path.read_text(encoding="utf-8")) == request
+        def start(self):
+            self.target()
+
+    class FakeController:
+        def publish(self, request):
+            captured["request"] = request
+            return 2
+
+    monkeypatch.setattr(editor_module.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(editor_module, "PublicationController", FakeController)
+    api = EditorApi(tmp_path / "result.json", tmp_path / "status.json", FakeWindow())
+
+    api.publish({
+        "action": "publish",
+        "html": "<p>Текст</p>",
+        "parts": ["<p>Часть 1</p>", "<p>Часть 2</p>"] if mode == "plain_series" else [],
+        "mode": mode,
+        "profile_id": "profile-1",
+        "series": mode == "plain_series",
+    })
+
+    assert captured["request"].profile == profile
+    assert captured["request"].content == "<p>Текст</p>"
+    assert captured["request"].mode == mode
+    assert captured["request"].parts == (["<p>Часть 1</p>", "<p>Часть 2</p>"] if mode == "plain_series" else [])
+    assert not (tmp_path / "result.json").exists()
+    assert api.get_status() == {"message": "Опубликовано. Отправлено сообщений: 2", "clear": True}
 
 
 def test_editor_api_rejects_publish_when_profile_is_missing(tmp_path, monkeypatch):

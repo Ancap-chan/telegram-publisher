@@ -740,7 +740,7 @@ class PublisherWindow:
             return
 
         message_count = estimate_message_count(
-            content if mode == "album" else plain_content,
+            content if mode in {"album", "album_series"} else plain_content,
             self.image_path,
             mode,
             series,

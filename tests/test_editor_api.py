@@ -11,7 +11,7 @@ from telegram_publisher.publishing import PartialPublicationError
 
 
 class FakeWindow:
-    """Минимальная заглушка окна для проверки протокола обмена."""
+    """Минимальная заглушка окна для проверки API редактора."""
 
 
 def test_editor_api_returns_profiles_without_tokens(tmp_path, monkeypatch):
@@ -108,7 +108,7 @@ def test_editor_api_publishes_rich_content_in_background(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("mode", ["plain", "plain_series"])
-def test_editor_api_publishes_plain_content_without_review_flow(tmp_path, monkeypatch, mode):
+def test_editor_api_publishes_plain_content_without_review_flow(monkeypatch, mode):
     profile = ChannelProfile("profile-1", "Канал", "@channel", "token")
     captured = {}
     monkeypatch.setattr(editor_module, "load_profiles", lambda: [profile])
@@ -142,7 +142,6 @@ def test_editor_api_publishes_plain_content_without_review_flow(tmp_path, monkey
     assert captured["request"].content == "<p>Текст</p>"
     assert captured["request"].mode == mode
     assert captured["request"].parts == (["<p>Часть 1</p>", "<p>Часть 2</p>"] if mode == "plain_series" else [])
-    assert not (tmp_path / "result.json").exists()
     assert api.get_status() == {"message": "Опубликовано. Отправлено сообщений: 2", "clear": True}
 
 

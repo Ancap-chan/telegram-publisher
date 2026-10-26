@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BuildVenv = Join-Path $ProjectRoot ".venv-build"
@@ -51,8 +51,10 @@ try {
         throw "Не удалось сохранить список установленных зависимостей."
     }
 
-    Write-Host "Сборка завершена. Исполняемый файл: $ProjectRoot\dist\Telegram Publisher\Telegram Publisher.exe"
-    Write-Host "Список версий зависимостей: $ProjectRoot\dist\build-dependencies.txt"
+    $Executable = Join-Path $ProjectRoot "dist\Telegram Publisher\Telegram Publisher.exe"
+    $DependencyList = Join-Path $ProjectRoot "dist\build-dependencies.txt"
+    Write-Host "Сборка завершена. Исполняемый файл: $Executable"
+    Write-Host "Список версий зависимостей: $DependencyList"
 }
 finally {
     Pop-Location

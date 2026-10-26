@@ -906,13 +906,12 @@ async function pollEditorStatus(){
    }
    const retryButton=document.getElementById('retry-pending');
    retryButton.hidden=!update.can_retry;
-   retryButton.disabled=Boolean(update.message&&(update.message.startsWith('Отправка')||update.message.startsWith('Повторная отправка')));
+   const sending=Boolean(update.message&&(update.message.startsWith('Отправка')||update.message.startsWith('Повторная отправка')));
+   retryButton.disabled=sending;
+   document.getElementById('publish').disabled=sending;
    if(update.message){
     document.getElementById('status').textContent=update.message;
-    if(!update.message.startsWith('Отправка')&&!update.message.startsWith('Повторная отправка')){
-     document.getElementById('publish').disabled=false;
-     retryButton.disabled=false;
-    }
+    if(!sending)retryButton.disabled=false;
    }
   }
  }catch(error){}

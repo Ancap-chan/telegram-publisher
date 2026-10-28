@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 
 import markdown
 from bs4 import BeautifulSoup, Tag
+from bs4.element import AttributeValueList
 from charset_normalizer import from_bytes
 
 
@@ -64,12 +65,11 @@ def _download(url: str) -> tuple[str, str]:
         with urlopen(request, timeout=20) as response:
             final_url = _validate_public_url(response.geturl())
             data = response.read(MAX_DOWNLOAD_BYTES + 1)
-            content_type = response.headers.get_content_type()
+            charset = response.headers.get_content_charset()
     except (HTTPError, URLError, OSError, TimeoutError) as error:
         raise ValueError(f"Не удалось загрузить страницу: {error}") from error
     if len(data) > MAX_DOWNLOAD_BYTES:
         raise ValueError("Страница слишком велика для импорта (лимит 12 МБ).")
-    charset = response.headers.get_content_charset() if "response" in locals() else None
     try:
         content = data.decode(charset or "utf-8", errors="replace")
     except LookupError:
@@ -102,7 +102,7 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
         if node.name not in ALLOWED_TAGS:
             node.unwrap()
             continue
-        clean_attrs: dict[str, str] = {}
+        clean_attrs: dict[str, str | AttributeValueList | None] = {}
         for attr in ("href", "src", "alt", "title", "controls", "colspan", "rowspan"):
             value = node.get(attr)
             if value is None:
@@ -166,7 +166,7 @@ def _page_title(content: str) -> str:
             return title
     for script in soup.find_all("script", type="application/ld+json"):
         try:
-            payload = json.loads(script.string or script.get_text())
+            payload = json.loads(script.get_text())
         except (json.JSONDecodeError, TypeError):
             continue
         entries = payload if isinstance(payload, list) else [payload]

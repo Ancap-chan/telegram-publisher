@@ -8,7 +8,9 @@ import json
 import ipaddress
 import re
 import socket
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urljoin, urlparse
 from urllib.request import Request, urlopen
@@ -162,7 +164,10 @@ def _page_title(content: str) -> str:
         ("h1", {}),
         ("title", {}),
     ):
-        node = soup.find(selector[0], attrs=selector[1]) if selector[1] else soup.find(selector[0])
+        attrs: Mapping[str, str] | None = (
+            {key: str(value) for key, value in selector[1].items()} if selector[1] else None
+        )
+        node = soup.find(selector[0], attrs=cast(Any, dict(attrs) if attrs else None)) if attrs else soup.find(selector[0])
         if not node:
             continue
         value = node.get("content", "") if node.name == "meta" else node.get_text(" ", strip=True)
@@ -237,8 +242,8 @@ def _extract_article(content: str, base_url: str) -> str:
     candidates = [
         soup.find("article"),
         soup.find("main"),
-        soup.find(attrs={"itemprop": "articleBody"}),
-        soup.find(attrs={"class": re.compile(r"(post-content|entry-content|article-content|article-body|post-body|content__body)", re.I)}),
+        soup.find(itemprop="articleBody"),
+        soup.find(class_=re.compile(r"(post-content|entry-content|article-content|article-body|post-body|content__body)", re.I)),
     ]
     source = next((candidate for candidate in candidates if candidate and candidate.get_text(" ", strip=True)), soup.body or soup)
     extracted = _sanitize_html(str(source), base_url)
@@ -267,7 +272,7 @@ def _docx_html(path: Path) -> str:
     from docx import Document
     from docx.oxml.ns import qn
 
-    document = Document(path)
+    document = Document(str(path))
     output: list[str] = []
     for paragraph in document.paragraphs:
         text_parts: list[str] = []
@@ -296,7 +301,8 @@ def _docx_html(path: Path) -> str:
                     content += link
         if not content:
             continue
-        style = paragraph.style.name.lower() if paragraph.style else ""
+        style_name = paragraph.style.name if paragraph.style is not None else ""
+        style = style_name.lower() if style_name else ""
         if style.startswith("heading"):
             match = re.search(r"([1-6])", style)
             level = match.group(1) if match else "2"
@@ -333,8 +339,15 @@ def _odt_html(path: Path) -> str:
                 if qname == heading_qname:
                     get_attribute = getattr(child, "getAttribute", None)
                     level = get_attribute("outlinelevel") if callable(get_attribute) else None
-                    level = str(max(1, min(6, int(level or "2"))))
-                    output.append(f"<h{level}>{content}</h{level}>")
+                    if isinstance(level, (str, int)):
+                        try:
+                            level_value = int(level)
+                        except (TypeError, ValueError):
+                            level_value = 2
+                    else:
+                        level_value = 2
+                    level_value = max(1, min(6, level_value))
+                    output.append(f"<h{level_value}>{content}</h{level_value}>")
                 else:
                     output.append(f"<p>{content}</p>")
             elif qname in list_qnames or getattr(child, "childNodes", None):

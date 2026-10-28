@@ -15,7 +15,6 @@ from urllib.request import Request, urlopen
 
 import markdown
 from bs4 import BeautifulSoup, Tag
-from bs4.element import AttributeValueList
 from charset_normalizer import from_bytes
 
 
@@ -102,7 +101,7 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
         if node.name not in ALLOWED_TAGS:
             node.unwrap()
             continue
-        clean_attrs: dict[str, str | AttributeValueList | None] = {}
+        clean_attrs: dict[str, str] = {}
         for attr in ("href", "src", "alt", "title", "controls", "colspan", "rowspan"):
             value = node.get(attr)
             if value is None:
@@ -118,7 +117,8 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
                 if attr == "src" and not value.lower().startswith(("https://", "http://")):
                     continue
             clean_attrs[attr] = value
-        node.attrs = clean_attrs
+        node.attrs.clear()
+        node.attrs.update(clean_attrs)
     for image in soup.find_all("img"):
         if not image.get("src"):
             lazy_src = image.get("data-src") or image.get("data-lazy-src")

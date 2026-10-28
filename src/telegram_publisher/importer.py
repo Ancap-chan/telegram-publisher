@@ -76,6 +76,15 @@ def _download(url: str) -> tuple[str, str]:
     return content, final_url
 
 
+def _attribute_text(value: object) -> str:
+    """Преобразовать значение HTML-атрибута в строку для обработки ссылок."""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (list, tuple)):
+        return " ".join(str(item) for item in value).strip()
+    return ""
+
+
 def _sanitize_html(content: str, base_url: str | None = None) -> str:
     """Оставить безопасное форматирование и превратить относительные ссылки в абсолютные."""
     soup = BeautifulSoup(content, "html.parser")
@@ -95,7 +104,7 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
         if not isinstance(node, Tag):
             continue
         if node.name == "img" and not node.get("src"):
-            lazy_src = node.get("data-src") or node.get("data-lazy-src")
+            lazy_src = _attribute_text(node.get("data-src")) or _attribute_text(node.get("data-lazy-src"))
             if lazy_src:
                 node["src"] = lazy_src
         if node.name not in ALLOWED_TAGS:
@@ -103,12 +112,9 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
             continue
         clean_attrs: dict[str, str] = {}
         for attr in ("href", "src", "alt", "title", "controls", "colspan", "rowspan"):
-            value = node.get(attr)
-            if value is None:
+            value = _attribute_text(node.get(attr))
+            if not value:
                 continue
-            if isinstance(value, list):
-                value = " ".join(str(item) for item in value)
-            value = str(value).strip()
             if attr in {"href", "src"}:
                 if value.lower().startswith(("javascript:", "data:", "file:", "vbscript:")):
                     continue
@@ -121,7 +127,7 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
         node.attrs.update(clean_attrs)
     for image in soup.find_all("img"):
         if not image.get("src"):
-            lazy_src = image.get("data-src") or image.get("data-lazy-src")
+            lazy_src = _attribute_text(image.get("data-src")) or _attribute_text(image.get("data-lazy-src"))
             if lazy_src and base_url:
                 image["src"] = urljoin(base_url, lazy_src)
         if not image.get("src"):
@@ -306,28 +312,37 @@ def _odt_html(path: Path) -> str:
     """Преобразовать абзацы и заголовки ODT в HTML в исходном порядке."""
     from odf import teletype
     from odf.opendocument import load
-    from odf.text import H, List, ListItem, P
 
     document = load(str(path))
     output: list[str] = []
+    text_namespace = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+    heading_qname = (text_namespace, "h")
+    paragraph_qname = (text_namespace, "p")
+    list_qnames = {
+        (text_namespace, "list"),
+        (text_namespace, "list-item"),
+    }
 
     def walk(node: object) -> None:
         for child in getattr(node, "childNodes", []):
             qname = getattr(child, "qname", None)
-            if qname in {H.qname, P.qname}:
+            if qname in {heading_qname, paragraph_qname}:
                 content = html.escape(teletype.extractText(child)).replace("\n", "<br>")
                 if not content.strip():
                     continue
-                if qname == H.qname:
-                    level = getattr(child, "getAttribute")("outlinelevel") or "2"
-                    level = str(max(1, min(6, int(level))))
+                if qname == heading_qname:
+                    get_attribute = getattr(child, "getAttribute", None)
+                    level = get_attribute("outlinelevel") if callable(get_attribute) else None
+                    level = str(max(1, min(6, int(level or "2"))))
                     output.append(f"<h{level}>{content}</h{level}>")
                 else:
                     output.append(f"<p>{content}</p>")
-            elif qname in {List.qname, ListItem.qname} or getattr(child, "childNodes", None):
+            elif qname in list_qnames or getattr(child, "childNodes", None):
                 walk(child)
 
-    walk(document.text)
+    text_root = getattr(document, "text", None)
+    if text_root is not None:
+        walk(text_root)
     return "".join(output)
 
 def _decode_text_file(path: Path) -> str:

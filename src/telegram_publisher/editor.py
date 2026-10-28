@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 
 import webview
+from webview.window import Window
 
 from . import __version__
 
@@ -1103,11 +1104,11 @@ MANUAL_HTML = r"""<!doctype html>
 class EditorApi:
     """Обеспечить работу визуального редактора и публикацию сообщений."""
 
-    def __init__(self, window: object) -> None:
-        self.window = window
-        self.manual_window = None
+    def __init__(self, window: Window) -> None:
+        self.window: Window = window
+        self.manual_window: Window | None = None
         self._status_lock = threading.Lock()
-        self._status_update: dict | None = None
+        self._status_update: dict[str, str | bool] | None = None
         self._publishing = False
         self._pending_profile: ChannelProfile | None = None
         self._pending_messages: list[str] = []
@@ -1232,12 +1233,12 @@ class EditorApi:
     def _set_status(self, message: str, can_retry: bool = False) -> None:
         """Сохранить однократное уведомление для редактора."""
         with self._status_lock:
-            payload = {"message": message}
+            payload: dict[str, str | bool] = {"message": message}
             if can_retry:
                 payload["can_retry"] = True
             self._status_update = payload
 
-    def get_status(self) -> dict | None:
+    def get_status(self) -> dict[str, str | bool] | None:
         """Получить однократное уведомление о публикации."""
         with self._status_lock:
             payload = self._status_update
@@ -1265,7 +1266,8 @@ class EditorApi:
         )
         if not paths:
             return None
-        path = Path(paths[0])
+        selected_path = paths if isinstance(paths, str) else paths[0]
+        path = Path(selected_path)
         if path.suffix.lower() == ".draft":
             try:
                 draft = json.loads(path.read_text(encoding="utf-8"))
@@ -1287,6 +1289,8 @@ class EditorApi:
             "Руководство — Telegram Publisher", html=MANUAL_HTML,
             width=780, height=780, resizable=True,
         )
+        if manual is None:
+            raise RuntimeError("Не удалось создать окно руководства.")
         self.manual_window = manual
         manual.events.closed += lambda *_args: setattr(self, "manual_window", None)
 
@@ -1379,7 +1383,8 @@ class EditorApi:
         )
         if not paths:
             return None
-        return import_from_file(Path(paths[0]))
+        selected_path = paths if isinstance(paths, str) else paths[0]
+        return import_from_file(Path(selected_path))
 
 
 def main() -> None:
@@ -1400,6 +1405,8 @@ def main() -> None:
         width=1200,
         height=850,
     )
+    if window is None:
+        raise RuntimeError("Не удалось создать окно редактора.")
     api = EditorApi(window)
     window.expose(api.publish, api.retry_pending, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual, api.select_media_files, api.get_profiles, api.save_channel_profile, api.delete_channel_profile)
 

@@ -1314,13 +1314,13 @@ class EditorApi:
             save_filename=f"{safe_name}.draft",
             file_types=("Черновики Telegram Publisher (*.draft)",),
         )
-        if not path:
+        if isinstance(path, str):
+            selected_path = path
+        elif path:
+            selected_path = path[0]
+        else:
             return None
-        if isinstance(path, (list, tuple)):
-            path = path[0] if path else None
-        if not path:
-            return None
-        destination = Path(path)
+        destination = Path(selected_path)
         if destination.suffix.lower() != ".draft":
             destination = destination.with_suffix(".draft")
         destination.write_text(

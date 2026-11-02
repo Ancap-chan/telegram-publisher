@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 
 import markdown
 from bs4 import BeautifulSoup, Tag
+from bs4.formatter import HTMLFormatter
 from charset_normalizer import from_bytes
 
 
@@ -241,7 +242,7 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
         if not media.get("src"):
             media.decompose()
 
-    return str(soup)
+    return soup.decode(formatter=HTMLFormatter(sort_attributes=False))
 
 def convert_html(content: str, base_url: str | None = None) -> str:
     """Очистить HTML, сохранив разметку и публичные ссылки на медиа."""

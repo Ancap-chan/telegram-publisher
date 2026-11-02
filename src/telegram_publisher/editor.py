@@ -78,6 +78,18 @@ body.code-mode .edit-tools{display:flex}
 #editor input[type=checkbox]{width:16px;height:16px;vertical-align:middle;margin:0 6px 0 0}
 #editor table{border-collapse:collapse;width:100%}
 #editor td,#editor th{border:1px solid #888;padding:6px}
+.table-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:4px;border-top:1px solid #e4e6e9}
+.table-tools[hidden]{display:none}
+.table-tools button,.table-tools select,.table-tools input{font-size:12px;padding:4px 6px}
+.table-tools label{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#4c5663}
+.table-tools input{width:54px}
+.table-tools-label{font-size:12px;font-weight:650;color:#34445a}
+#editor td.table-cell-selected,#editor th.table-cell-selected{outline:2px solid #245eb5;outline-offset:-2px;background-color:#e8f0ff}
+#insert-dialog-content .table-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+#insert-dialog-content .table-form label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:#414954}
+#insert-dialog-content .table-form input[type=number],#insert-dialog-content .table-form input[type=text]{width:100%;padding:8px;border:1px solid #c9cfd7;border-radius:5px}
+#insert-dialog-content .table-form .table-checks{grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap}
+#insert-dialog-content .table-form .table-checks label{display:inline-flex;align-items:center;gap:5px}
 footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
 .status{color:#555;font-size:13px}
 .publish-options{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -159,6 +171,20 @@ button:disabled{opacity:.55;cursor:default}
 <button type="button" data-cmd="removeFormat" title="Очистить форматирование">Tx</button>
 <span id="series-tools"><button type="button" id="insert-break" title="Разрыв сообщения">Разрыв</button></span>
 </div>
+<div id="table-tools" class="toolbar-row table-tools" role="toolbar" aria-label="Инструменты таблицы" hidden>
+ <span class="table-tools-label">Таблица:</span>
+ <button type="button" id="table-add-row" title="Добавить строку после текущей">+ Строка</button>
+ <button type="button" id="table-delete-row" title="Удалить текущую строку">− Строка</button>
+ <button type="button" id="table-add-column" title="Добавить столбец после текущего">+ Столбец</button>
+ <button type="button" id="table-delete-column" title="Удалить текущий столбец">− Столбец</button>
+ <button type="button" id="table-merge" title="Объединить выделенные ячейки" disabled>Объединить</button>
+ <button type="button" id="table-header-row" title="Переключить заголовочную строку">Заголовочная строка</button>
+ <label>Горизонтально <select id="table-cell-align"><option value="left">Слева</option><option value="center">По центру</option><option value="right">Справа</option></select></label>
+ <label>Вертикально <select id="table-cell-valign"><option value="top">Сверху</option><option value="middle">По центру</option><option value="bottom">Снизу</option></select></label>
+ <label>Столбцов в ячейке <input id="table-cell-colspan" type="number" min="1" max="20" value="1"></label>
+ <label>Строк в ячейке <input id="table-cell-rowspan" type="number" min="1" max="500" value="1"></label>
+ <button type="button" id="table-cell-spans" title="Применить размер ячейки">Размер ячейки</button>
+ <button type="button" id="table-properties" title="Свойства таблицы" disabled>Свойства таблицы</button>
 </div>
 </header>
 <div id="series-status" class="series-status" aria-live="polite" hidden></div><main><div id="editor" contenteditable="true" spellcheck="true"></div><div id="code-editor-wrap"><pre id="code-highlight" aria-hidden="true"></pre><textarea id="code-editor" aria-label="HTML-код публикации" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="soft"></textarea></div></main>
@@ -641,7 +667,7 @@ function cleanClipboardHtml(markup){
  const allowed=new Set(['a','aside','b','blockquote','br','caption','cite','code','del','details','em','figcaption','footer','h1','h2','h3','h4','h5','h6','hr','i','img','input','ins','li','mark','ol','p','pre','s','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','tg-map','u','ul','video']);
  const attributes={
   a:['href','name'],code:['class'],img:['src','alt'],input:['type','checked'],video:['src'],audio:['src'],
-  table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'],
+  table:['bordered','striped','compact'],caption:[],blockquote:['expandable'],details:['open'],
   td:['colspan','rowspan','align','valign'],th:['colspan','rowspan','align','valign'],
   'tg-emoji':['emoji-id'],'tg-time':['unix','format'],'tg-reference':['name'],
   'tg-button':['type','style','url','data','text','query','forward-text','request-write-access','allow-user-chats','allow-group-chats','allow-channel-chats'],
@@ -1136,7 +1162,246 @@ function insertMediaFromUrl(){
 }
 document.getElementById('media').onclick=insertMediaFromUrl;
 document.getElementById('local-media').onclick=insertMediaFromFile;
-document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,Number(prompt('Количество строк','2'))||2));const cols=Math.max(1,Math.min(10,Number(prompt('Количество столбцов','2'))||2));let table='<table><tbody>';for(let r=0;r<rows;r++){table+='<tr>';for(let c=0;c<cols;c++)table+='<td><br></td>';table+='</tr>'}table+='</tbody></table><p><br></p>';insertEditorMarkup(table)};
+let activeTable=null,activeTableCell=null,selectedTableCells=[];
+const tableTools=document.getElementById('table-tools');
+function tableCellFromSelection(){
+ if(editorMode!=='visual')return null;
+ const selection=window.getSelection();
+ let node=selection&&selection.focusNode;
+ if(node&&node.nodeType===Node.TEXT_NODE)node=node.parentElement;
+ const cell=node&&node.closest?node.closest('td,th'):null;
+ return cell&&editor.contains(cell)?cell:null;
+}
+function tableGrid(table){
+ const rows=Array.from(table.rows),grid=[];
+ rows.forEach((row,r)=>{
+  grid[r]=grid[r]||[];
+  let col=0;
+  for(const cell of Array.from(row.cells)){
+   while(grid[r][col])col++;
+   const width=Math.max(1,Number(cell.colSpan)||1),height=Math.max(1,Number(cell.rowSpan)||1);
+   for(let y=r;y<Math.min(rows.length,r+height);y++){
+    grid[y]=grid[y]||[];
+    for(let x=col;x<col+width;x++)grid[y][x]=cell;
+   }
+   col+=width;
+  }
+ });
+ return grid;
+}
+function tableCellPosition(cell){
+ const table=cell&&cell.closest('table');
+ if(!table)return null;
+ const grid=tableGrid(table);
+ for(let r=0;r<grid.length;r++)for(let c=0;c<(grid[r]||[]).length;c++)if(grid[r][c]===cell)return {table,row:r,column:c,grid};
+ return null;
+}
+function clearTableCellSelection(){
+ selectedTableCells.forEach(cell=>cell.classList.remove('table-cell-selected'));
+ selectedTableCells=[];
+}
+function selectTableRectangle(first,last){
+ clearTableCellSelection();
+ const a=tableCellPosition(first),b=tableCellPosition(last);
+ if(!a||!b||a.table!==b.table)return;
+ const top=Math.min(a.row,b.row),bottom=Math.max(a.row,b.row),left=Math.min(a.column,b.column),right=Math.max(a.column,b.column);
+ const cells=new Set();
+ for(let r=top;r<=bottom;r++)for(let c=left;c<=right;c++){const cell=a.grid[r]&&a.grid[r][c];if(cell)cells.add(cell)}
+ selectedTableCells=Array.from(cells);
+ selectedTableCells.forEach(cell=>cell.classList.add('table-cell-selected'));
+}
+function updateTableTools(){
+ const cell=tableCellFromSelection()||activeTableCell;
+ const table=cell&&cell.closest('table');
+ activeTable=table&&editor.contains(table)?table:null;
+ activeTableCell=activeTable?cell:null;
+ tableTools.hidden=!activeTable;
+ document.getElementById('table-properties').disabled=!activeTable;
+ if(!activeTable){clearTableCellSelection();return}
+ document.getElementById('table-merge').disabled=selectedTableCells.length<2;
+ document.getElementById('table-cell-align').value=activeTableCell.getAttribute('align')||'left';
+ document.getElementById('table-cell-valign').value=activeTableCell.getAttribute('valign')||'middle';
+ document.getElementById('table-cell-colspan').value=activeTableCell.colSpan||1;
+ document.getElementById('table-cell-rowspan').value=activeTableCell.rowSpan||1;
+}
+function buildTableForm(table=null){
+ const form=document.createElement('div');form.className='table-form';
+ const rowCount=table?table.rows.length:2;
+ const grid=table?tableGrid(table):[];
+ const colCount=table?Math.max(1,...grid.map(row=>row.length)):2;
+ const field=(label,id,type,value,max)=>{
+  const wrapper=document.createElement('label');wrapper.textContent=label;
+  const input=document.createElement('input');input.id=id;input.type=type;input.value=value;
+  if(type==='number'){input.min='1';input.max=String(max)}
+  wrapper.append(input);return wrapper;
+ };
+ if(!table){
+  form.append(field('Количество строк','table-create-rows','number',rowCount,500));
+  form.append(field('Количество столбцов','table-create-columns','number',colCount,20));
+  const header= document.createElement('label');header.innerHTML='<input id="table-create-header" type="checkbox" checked> Первая строка — заголовочная';form.append(header);
+ }
+ const caption=field('Подпись таблицы','table-caption','text',table?(table.querySelector(':scope > caption')?.textContent||''):'',500);
+ form.append(caption);
+ const checks=document.createElement('div');checks.className='table-checks';
+ [['bordered','Границы'],['striped','Чередование строк'],['compact','Компактные отступы']].forEach(([name,label])=>{
+  const item=document.createElement('label');const input=document.createElement('input');input.type='checkbox';input.id='table-'+name;
+  input.checked=table?table.hasAttribute(name):name==='bordered';
+  item.append(input,document.createTextNode(label));checks.append(item);
+ });
+ form.append(checks);
+ return form;
+}
+function openTableDialog(table=null){
+ const form=buildTableForm(table);
+ openInsertDialog(table?'Свойства таблицы':'Создание таблицы',form,table?'Сохранить':'Создать таблицу');
+ document.getElementById('insert-dialog-confirm').onclick=()=>{
+  const caption=document.getElementById('table-caption').value.trim();
+  const flags=['bordered','striped','compact'].filter(name=>document.getElementById('table-'+name).checked);
+  if(table){
+   ['bordered','striped','compact'].forEach(name=>table.toggleAttribute(name,flags.includes(name)));
+   let captionNode=table.querySelector(':scope > caption');
+   if(caption&&!captionNode){captionNode=document.createElement('caption');table.insertBefore(captionNode,table.firstChild)}
+   if(captionNode){captionNode.textContent=caption;if(!caption)captionNode.remove()}
+   refreshCodeEditor();updateTableTools();updateSeriesStatus();
+  }else{
+   const rows=Math.max(1,Math.min(500,Number(document.getElementById('table-create-rows').value)||2));
+   const cols=Math.max(1,Math.min(20,Number(document.getElementById('table-create-columns').value)||2));
+   const header=document.getElementById('table-create-header').checked;
+   let markup='<table'+(flags.length?' '+flags.join(' '):'')+'>'+(caption?'<caption>'+escapeInsertedText(caption)+'</caption>':'')+'<tbody>';
+   for(let r=0;r<rows;r++){
+    markup+='<tr>';
+    for(let c=0;c<cols;c++){const tag=header&&r===0?'th':'td';markup+='<'+tag+' align="left" valign="middle"><br></'+tag+'>'}
+    markup+='</tr>';
+   }
+   markup+='</tbody></table><p><br></p>';
+   closeInsertDialog();insertEditorMarkup(markup);return;
+  }
+  closeInsertDialog();
+ };
+}
+function currentTableCell(){
+ return activeTableCell&&activeTableCell.isConnected?activeTableCell:tableCellFromSelection();
+}
+function addTableRow(){
+ const cell=currentTableCell();if(!cell)return;
+ const row=cell.parentElement,table=cell.closest('table'),position=tableCellPosition(cell);
+ const cols=Math.max(1,...tableGrid(table).map(item=>item.length));
+ const next=row.nextElementSibling||null,newRow=document.createElement('tr');
+ for(let i=0;i<cols;i++){const td=document.createElement('td');td.innerHTML='<br>';td.setAttribute('align','left');td.setAttribute('valign','middle');newRow.append(td)}
+ row.parentNode.insertBefore(newRow,next);activeTableCell=newRow.cells[Math.min(position.column,newRow.cells.length-1)];
+ refreshCodeEditor();updateTableTools();
+}
+function deleteTableRow(){
+ const cell=currentTableCell();if(!cell)return;
+ const table=cell.closest('table'),row=cell.parentElement;
+ if(table.rows.length<=1){document.getElementById('status').textContent='В таблице должна остаться хотя бы одна строка.';return}
+ const rowIndex=row.rowIndex;
+ for(const otherRow of Array.from(table.rows)){
+  if(otherRow===row)continue;
+  for(const otherCell of Array.from(otherRow.cells)){
+   const pos=tableCellPosition(otherCell);
+   if(pos&&pos.row<rowIndex&&otherCell.rowSpan>1)otherCell.rowSpan--;
+  }
+ }
+ const next=row.nextElementSibling||row.previousElementSibling;
+ row.remove();activeTableCell=next&&next.cells.length?next.cells[0]:table.rows[0].cells[0];
+ refreshCodeEditor();updateTableTools();
+}
+function addTableColumn(){
+ const cell=currentTableCell();if(!cell)return;
+ const table=cell.closest('table'),position=tableCellPosition(cell),grid=tableGrid(table);
+ if(Math.max(...grid.map(row=>row.length))>=20){document.getElementById('status').textContent='Telegram поддерживает не более 20 столбцов в таблице.';return}
+ const insertAt=position.column+Math.max(1,cell.colSpan||1);
+ for(let r=0;r<table.rows.length;r++){
+  const row=table.rows[r],cover=grid[r]&&grid[r][insertAt-1];
+  if(cover&&cover.colSpan>1&&tableCellPosition(cover).column+cover.colSpan>insertAt){cover.colSpan++;continue}
+  const newCell=document.createElement('td');newCell.innerHTML='<br>';newCell.setAttribute('align','left');newCell.setAttribute('valign','middle');
+  const target=grid[r]&&grid[r][insertAt];
+  if(target&&target.parentElement===row)row.insertBefore(newCell,target);
+  else row.append(newCell);
+  if(r===position.row)activeTableCell=newCell;
+ }
+ refreshCodeEditor();updateTableTools();
+}
+function deleteTableColumn(){
+ const cell=currentTableCell();if(!cell)return;
+ const table=cell.closest('table'),position=tableCellPosition(cell),grid=tableGrid(table);
+ if(Math.max(...grid.map(row=>row.length))<=1){document.getElementById('status').textContent='В таблице должен остаться хотя бы один столбец.';return}
+ const column=position.column,affected=new Set();
+ grid.forEach(row=>{if(row[column])affected.add(row[column])});
+ affected.forEach(item=>{
+  if(item.colSpan>1)item.colSpan--;
+  else item.remove();
+ });
+ activeTableCell=table.rows[Math.min(position.row,table.rows.length-1)].cells[0]||table.rows[0].cells[0];
+ refreshCodeEditor();updateTableTools();
+}
+function applyCellAlignment(attribute,value){
+ const cells=selectedTableCells.length?selectedTableCells:[currentTableCell()].filter(Boolean);
+ cells.forEach(cell=>cell.setAttribute(attribute,value));
+ refreshCodeEditor();updateTableTools();
+}
+function toggleHeaderRow(){
+ const cell=currentTableCell();if(!cell)return;
+ const row=cell.parentElement,makeHeader=!Array.from(row.cells).every(item=>item.tagName==='TH');
+ Array.from(row.cells).forEach(item=>{
+  const replacement=document.createElement(makeHeader?'th':'td');
+  Array.from(item.attributes).forEach(attr=>replacement.setAttribute(attr.name,attr.value));
+  replacement.innerHTML=item.innerHTML;item.replaceWith(replacement);
+  if(item===cell)activeTableCell=replacement;
+ });
+ refreshCodeEditor();updateTableTools();
+}
+function applyCellSpans(){
+ const cell=currentTableCell();if(!cell)return;
+ const colspan=Math.max(1,Math.min(20,Number(document.getElementById('table-cell-colspan').value)||1));
+ const rowspan=Math.max(1,Math.min(500,Number(document.getElementById('table-cell-rowspan').value)||1));
+ cell.colSpan=colspan;cell.rowSpan=rowspan;
+ if(colspan===1)cell.removeAttribute('colspan');
+ if(rowspan===1)cell.removeAttribute('rowspan');
+ refreshCodeEditor();updateTableTools();
+}
+function mergeTableCells(){
+ const cells=selectedTableCells.slice();if(cells.length<2)return;
+ const positions=cells.map(tableCellPosition);if(positions.some(item=>!item)||positions.some(item=>item.table!==positions[0].table))return;
+ const rows=positions.map(item=>item.row),cols=positions.map(item=>item.column);
+ const top=Math.min(...rows),bottom=Math.max(...rows),left=Math.min(...cols),right=Math.max(...cols);
+ const table=positions[0].table,grid=tableGrid(table),expected=(bottom-top+1)*(right-left+1);
+ const rectangle=[];
+ for(let r=top;r<=bottom;r++)for(let c=left;c<=right;c++){const item=grid[r]&&grid[r][c];if(item&&!rectangle.includes(item))rectangle.push(item)}
+ if(rectangle.length!==cells.length||cells.length!==expected||rectangle.some(item=>item.colSpan>1||item.rowSpan>1)){
+  document.getElementById('status').textContent='Для объединения выделите прямоугольную область из обычных ячеек без уже объединённых ячеек.';return;
+ }
+ const first=grid[top][left];
+ rectangle.filter(item=>item!==first).sort((a,b)=>b.parentElement.rowIndex-a.parentElement.rowIndex||b.cellIndex-a.cellIndex).forEach(item=>{
+  if(item.textContent.trim())first.append(document.createElement('br'),...Array.from(item.childNodes));
+  item.remove();
+ });
+ first.colSpan=right-left+1;first.rowSpan=bottom-top+1;
+ if(first.colSpan===1)first.removeAttribute('colspan');
+ if(first.rowSpan===1)first.removeAttribute('rowspan');
+ clearTableCellSelection();activeTableCell=first;
+ refreshCodeEditor();updateTableTools();
+}
+document.getElementById('table').onclick=()=>openTableDialog();
+document.getElementById('table-properties').onclick=()=>{const table=activeTable;if(table)openTableDialog(table)};
+document.getElementById('table-add-row').onclick=addTableRow;
+document.getElementById('table-delete-row').onclick=deleteTableRow;
+document.getElementById('table-add-column').onclick=addTableColumn;
+document.getElementById('table-delete-column').onclick=deleteTableColumn;
+document.getElementById('table-merge').onclick=mergeTableCells;
+document.getElementById('table-header-row').onclick=toggleHeaderRow;
+document.getElementById('table-cell-align').onchange=event=>applyCellAlignment('align',event.target.value);
+document.getElementById('table-cell-valign').onchange=event=>applyCellAlignment('valign',event.target.value);
+document.getElementById('table-cell-spans').onclick=applyCellSpans;
+editor.addEventListener('click',event=>{
+ const cell=event.target.closest('td,th');
+ if(!cell||!editor.contains(cell)){activeTableCell=null;clearTableCellSelection();updateTableTools();return}
+ if(event.shiftKey&&activeTableCell&&activeTableCell.closest('table')===cell.closest('table'))selectTableRectangle(activeTableCell,cell);
+ else{clearTableCellSelection();activeTableCell=cell}
+ updateTableTools();
+});
+
 const seriesStatus=document.getElementById('series-status');
 function isAlbumMode(){return modeSelect.value==='album'||modeSelect.value==='album_series'}
 function isSeriesMode(){return modeSelect.value.endsWith('_series')||(!isAlbumMode()&&seriesCheckbox.checked)}
@@ -1411,6 +1676,8 @@ function insertBreakAtSelection(){
 }
 document.getElementById('insert-break').addEventListener('click',insertBreakAtSelection);
 editor.addEventListener('input',()=>{updatePlainCompatibility();updateSeriesStatus()});
+editor.addEventListener('keyup',updateTableTools);
+document.addEventListener('selectionchange',()=>{if(editorMode==='visual')updateTableTools()});
 modeSelect.addEventListener('change',()=>{
  commitCodeToVisual();
  if(editor.querySelector('[data-local-file]')&&!['rich','rich_series','album','album_series'].includes(modeSelect.value)){

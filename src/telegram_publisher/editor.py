@@ -181,35 +181,35 @@ function escapeCodeHtml(value){
  return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 function formatHtmlForDisplay(markup){
- const tokens=String(markup||'').match(/<!--[\\s\\S]*?-->|<![^>]*>|<\\/?[A-Za-z][^>]*>/g)||[];
+ const tokens=String(markup||'').match(/<!--[\\s\\S]*?-->|<![^>]*>|<\/?[A-Za-z][^>]*>/g)||[];
  if(!tokens.length)return String(markup||'').trim();
  const blockTags=new Set(['address','article','aside','blockquote','body','caption','dd','details','div','dl','dt','fieldset','figcaption','figure','footer','form','h1','h2','h3','h4','h5','h6','head','header','hr','html','li','main','nav','ol','p','pre','section','summary','table','tbody','td','tfoot','th','thead','tr','ul']);
  let output='',position=0,depth=0,lineStart=true;
  const appendText=value=>{
   if(!value)return;
-  const chunks=value.split(/(\\s+)/);
+  const chunks=value.split(/(\s+)/);
   for(const chunk of chunks){
    if(!chunk)continue;
    if(lineStart&&chunk.trim()){output+='  '.repeat(Math.max(0,depth));lineStart=false;}
    output+=chunk;
-   if(chunk.includes('\\n'))lineStart=output.endsWith('\\n');
+   if(chunk.includes('\n'))lineStart=output.endsWith('\n');
   }
  };
  for(const token of tokens){
   const index=markup.indexOf(token,position);
   if(index<0)continue;
   appendText(markup.slice(position,index));
-  const closing=/^<\\//.test(token);
-  const name=(token.match(/^<\\/?\\s*([\\w:-]+)/)||[])[1]?.toLowerCase()||'';
+  const closing=/^<\//.test(token);
+  const name=(token.match(/^<\/?\s*([\w:-]+)/)||[])[1]?.toLowerCase()||'';
   const isBlock=blockTags.has(name);
-  if(closing&&isBlock){if(!lineStart)output+='\\n';depth=Math.max(0,depth-1);}
+  if(closing&&isBlock){if(!lineStart)output+='\n';depth=Math.max(0,depth-1);}
   if(isBlock&&lineStart)output+='  '.repeat(Math.max(0,depth));
-  else if(isBlock&&!lineStart)output+='\\n'+'  '.repeat(Math.max(0,depth));
+  else if(isBlock&&!lineStart)output+='\n'+'  '.repeat(Math.max(0,depth));
   output+=token;
   lineStart=false;
-  const selfClosing=/\\/>$/.test(token)||['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'].includes(name);
+  const selfClosing=/\/>$/.test(token)||['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'].includes(name);
   if(!closing&&isBlock&&!selfClosing)depth++;
-  if(isBlock){output+='\\n';lineStart=true;}
+  if(isBlock){output+='\n';lineStart=true;}
   position=index+token.length;
  }
  appendText(markup.slice(position));
@@ -217,7 +217,7 @@ function formatHtmlForDisplay(markup){
 }
 function highlightHtmlCode(){
  const source=codeEditor.value;
- const pattern=/<!--[\\s\\S]*?-->|<![^>]*>|<\\/?[A-Za-z][^>]*>/g;
+ const pattern=/<!--[\\s\\S]*?-->|<![^>]*>|<\/?[A-Za-z][^>]*>/g;
  let output='',position=0,match;
  while((match=pattern.exec(source))){
   output+=escapeCodeHtml(source.slice(position,match.index));
@@ -225,21 +225,19 @@ function highlightHtmlCode(){
   if(token.startsWith('<!--'))output+='<span class="html-comment">'+escapeCodeHtml(token)+'</span>';
   else if(token.startsWith('<!'))output+='<span class="html-doctype">'+escapeCodeHtml(token)+'</span>';
   else{
-   const tagMatch=token.match(/^(<\\/?)([\\w:-]+)/);
+   const tagMatch=token.match(/^(<\/?)([\w:-]+)/);
    if(!tagMatch){output+=escapeCodeHtml(token);}
    else{
     const prefix=tagMatch[1],name=tagMatch[2];
     const rest=token.slice(tagMatch[0].length,-1);
-    output+='<span class="html-tag">'+escapeCodeHtml(prefix)+'<span class="html-tag-name">'+escapeCodeHtml(name)+'</span>';
-    const attrs=rest.replace(/([\\w:-]+)(\\s*=\\s*)("[^"]*"|'[^']*'|[^\\s>]+)/g,(all,key,equal,value)=>'<span class="html-attr">'+escapeCodeHtml(key)+'</span>'+escapeCodeHtml(equal)+'<span class="html-value">'+escapeCodeHtml(value)+'</span>');
-    output+=attrs+escapeCodeHtml('>');
-    output+='</span>';
+    const attrs=rest.replace(/([\w:-]+)(\s*=\s*)("[^"]*"|'[^']*'|[^\s>]+)/g,(all,key,equal,value)=>'<span class="html-attr">'+escapeCodeHtml(key)+'</span>'+escapeCodeHtml(equal)+'<span class="html-value">'+escapeCodeHtml(value)+'</span>');
+    output+='<span class="html-tag">'+escapeCodeHtml(prefix)+'<span class="html-tag-name">'+escapeCodeHtml(name)+'</span>'+attrs+escapeCodeHtml('>')+'</span>';
    }
   }
   position=pattern.lastIndex;
  }
  output+=escapeCodeHtml(source.slice(position));
- codeHighlight.innerHTML=output+'\\n';
+ codeHighlight.innerHTML=output+'\n';
 }
 function setCodeValue(markup,format=true){
  codeEditor.value=format?formatHtmlForDisplay(markup):String(markup||'');

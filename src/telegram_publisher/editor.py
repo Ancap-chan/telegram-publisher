@@ -961,6 +961,7 @@ function insertEditorMarkup(markup,caretInside=false){
  updatePlainCompatibility();updateSeriesStatus();refreshCodeEditor();updateToolbarState();
 }
 function insertWrappedElement(tag,placeholder,attributes=''){
+ if(editorMode!=='code')restoreEditorSelection();
  const selectedText=selectedEditorText(),content=selectedText||escapeInsertedText(placeholder);
  const opening='<'+tag+(attributes?' '+attributes:'')+'>';
  insertEditorMarkup(opening+content+'</'+tag+'>',!selectedText);
@@ -1033,6 +1034,7 @@ function openMathBuilder(){
 }
 
 document.querySelectorAll('[data-insert]').forEach(button=>button.addEventListener('click',()=>{
+ if(editorMode!=='code')restoreEditorSelection();
  const action=button.dataset.insert;
  if(action==='code'){insertWrappedElement('code','код');return}
  if(action==='spoiler'){insertWrappedElement('tg-spoiler','скрытый текст');return}

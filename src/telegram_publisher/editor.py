@@ -403,9 +403,34 @@ function setVisualTextOffset(offset){
  const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
 }
 function htmlOffsetToTextOffset(markup,htmlOffset){
- const template=document.createElement('template');
- template.innerHTML=String(markup||'').slice(0,Math.max(0,htmlOffset));
- return template.content.textContent.length;
+ const source=String(markup||'').slice(0,Math.max(0,htmlOffset));
+ let index=0,visible=0,inTag=false,inComment=false,quote='';
+ while(index<source.length){
+  if(inComment){
+   if(source.startsWith('-->',index)){inComment=false;index+=3;continue}
+   index++;continue;
+  }
+  if(!inTag&&source.startsWith('<!--',index)){inComment=true;index+=4;continue}
+  const char=source[index];
+  if(inTag){
+   if(quote){if(char===quote)quote='';}
+   else if(char==='"'||char==="'")quote=char;
+   else if(char==='>')inTag=false;
+   index++;continue;
+  }
+  if(char==='<'){inTag=true;index++;continue}
+  if(char==='&'){
+   const end=source.indexOf(';',index+1);
+   if(end>index&&end-index<16){
+    const decoder=document.createElement('textarea');
+    decoder.innerHTML=source.slice(index,end+1);
+    const decoded=decoder.value;
+    if(decoded!==source.slice(index,end+1)){visible+=decoded.length;index=end+1;continue}
+   }
+  }
+  visible++;index++;
+ }
+ return visible;
 }
 function textOffsetToHtmlOffset(markup,textOffset){
  const source=String(markup||'');

@@ -53,9 +53,11 @@ body.code-mode #editor{display:none}
 body.code-mode #code-editor{display:block}
 .editor-mode-tools{padding-bottom:2px;border-bottom:1px solid #e4e6e9}
 .editor-mode-tools button[aria-pressed="true"]{background:#245eb5;color:#fff;border-color:#245eb5}
-body.code-mode .edit-tools{display:none}
+body.code-mode .edit-tools{display:flex}
+.edit-tools button[aria-pressed="true"]{background:#dce8fa;border-color:#789bd0;color:#173d79;box-shadow:inset 0 0 0 1px #789bd0}
+.insert-grid button[aria-pressed="true"]{background:#245eb5;color:#fff;border-color:#194b95;box-shadow:0 0 0 2px #9bbcf8}
 #editor img,#editor video{max-width:100%;height:auto}
-#editor tg-spoiler{background:#e1e4e8;color:#252a31;border-radius:3px;padding:0 3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+#editor tg-spoiler{background:#596273;color:#fff;border-radius:3px;padding:0 3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
 #editor details{margin:10px 0;padding:10px 12px;border:1px solid #d5d9df;border-radius:6px;background:#f7f8fa}
 #editor details>summary{cursor:pointer;font-weight:600;color:#34445a}
 #editor details> :not(summary){margin-top:8px}
@@ -476,6 +478,7 @@ function setEditorMode(nextMode){
   codeEditor.focus();
   const codeOffset=textOffsetToHtmlOffset(codeEditor.value,offset);
   codeEditor.setSelectionRange(codeOffset,codeOffset);
+  updateToolbarState();
   return;
  }
  const offset=htmlOffsetToTextOffset(codeEditor.value,codeEditor.selectionStart);
@@ -487,8 +490,12 @@ function setEditorMode(nextMode){
  editor.focus();
  setVisualTextOffset(offset);
  rememberEditorSelection();
+ updateToolbarState();
 }
-codeEditor.addEventListener('input',()=>{highlightHtmlCode();resizeCodeEditor();});
+codeEditor.addEventListener('input',()=>{highlightHtmlCode();resizeCodeEditor();updateToolbarState();});
+codeEditor.addEventListener('keyup',updateToolbarState);
+codeEditor.addEventListener('click',updateToolbarState);
+codeEditor.addEventListener('select',updateToolbarState);
 window.addEventListener('resize',resizeCodeEditor);
 codeEditor.addEventListener('scroll',()=>{
  codeHighlight.scrollTop=codeEditor.scrollTop;
@@ -517,6 +524,47 @@ function applyConfig(value){
  else if(!channelSelect.options.length)document.getElementById('status').textContent='Сначала укажите канал для публикации с помощью кнопки «Настроить каналы…».';
  updateModeUI();
  if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
+ updateToolbarState();
+}
+function codeTagStackAtCursor(markup,offset){
+ const source=String(markup||'').slice(0,Math.max(0,offset)),stack=[];
+ const voidTags=new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
+ const tokens=source.match(/<!--[\s\S]*?-->|<[^>]*>/g)||[];
+ for(const token of tokens){
+  if(token.startsWith('<!--')||token.startsWith('<!'))continue;
+  const match=token.match(/^<(\/)?\s*([\w:-]+)/);if(!match)continue;
+  const closing=Boolean(match[1]),tag=match[2].toLowerCase();
+  if(closing){const index=stack.lastIndexOf(tag);if(index>=0)stack.splice(index)}
+  else if(!voidTags.has(tag)&&!token.endsWith('/>'))stack.push(tag);
+ }
+ return stack;
+}
+function updateToolbarState(){
+ const buttons=document.querySelectorAll('.edit-tools button[data-cmd],.edit-tools button[data-insert]');
+ let tags=[];
+ if(editorMode==='code')tags=codeTagStackAtCursor(codeEditor.value,codeEditor.selectionStart);
+ else{
+  const selection=window.getSelection();let node=selection&&selection.focusNode;
+  if(node&&node.nodeType===Node.TEXT_NODE)node=node.parentElement;
+  while(node&&node!==editor){if(node.nodeType===Node.ELEMENT_NODE)tags.push(node.localName);node=node.parentElement}
+ }
+ const has=names=>names.some(name=>tags.includes(name));
+ const commandTags={bold:['b','strong'],italic:['i','em'],underline:['u'],strikeThrough:['s','del'],subscript:['sub'],superscript:['sup']};
+ buttons.forEach(button=>{
+  const cmd=button.dataset.cmd,insert=button.dataset.insert;let active=false;
+  if(editorMode==='visual'&&cmd&&cmd!=='formatBlock'&&cmd!=='removeFormat'&&cmd!=='insertHorizontalRule'){
+   try{active=document.queryCommandState(cmd)}catch(_error){}
+  }
+  if(cmd==='formatBlock')active=has([String(button.dataset.value||'').toLowerCase()]);
+  else if(commandTags[cmd])active=active||has(commandTags[cmd]);
+  if(cmd==='insertUnorderedList')active=has(['ul']);
+  if(cmd==='insertOrderedList')active=has(['ol']);
+  if(insert==='code')active=has(['code']);
+  if(insert==='spoiler')active=has(['tg-spoiler']);
+  if(insert==='pre')active=has(['pre']);
+  if(insert==='details')active=has(['details']);
+  button.setAttribute('aria-pressed',String(Boolean(active)));
+ });
 }
 function rememberEditorSelection(){
  const selection=window.getSelection();
@@ -657,9 +705,10 @@ function blobToDataUrl(blob){
  });
 }
 function hideContextMenu(){contextMenu.hidden=true}
-editor.addEventListener('mouseup',rememberEditorSelection);
-editor.addEventListener('keyup',rememberEditorSelection);
-editor.addEventListener('input',rememberEditorSelection);
+editor.addEventListener('mouseup',()=>{rememberEditorSelection();updateToolbarState()});
+editor.addEventListener('keyup',()=>{rememberEditorSelection();updateToolbarState()});
+editor.addEventListener('input',()=>{rememberEditorSelection();updateToolbarState()});
+document.querySelector('.edit-tools').addEventListener('mousedown',event=>{if(event.target.closest('button'))event.preventDefault()});
 editor.addEventListener('paste',event=>{
  const clipboard=event.clipboardData;
  if(!clipboard)return;
@@ -670,7 +719,7 @@ editor.addEventListener('paste',event=>{
   return;
  }
 });
-document.addEventListener('selectionchange',rememberEditorSelection);
+document.addEventListener('selectionchange',()=>{rememberEditorSelection();updateToolbarState()});
 editor.addEventListener('click',event=>{
  const marker=event.target.closest('.series-break');
  if(marker&&isSeriesMode()){
@@ -870,31 +919,52 @@ document.getElementById('manual').onclick=async()=>{
  try{await window.pywebview.api.open_manual()}
  catch(error){document.getElementById('status').textContent='Не удалось открыть руководство: '+(error&&error.message?error.message:String(error));}
 };
+function insertCodeMarkup(markup,caretInside=false){
+ const start=codeEditor.selectionStart,end=codeEditor.selectionEnd,value=String(markup||'');
+ codeEditor.setRangeText(value,start,end,'end');
+ if(caretInside){const caret=start+value.indexOf('>')+1;codeEditor.setSelectionRange(caret,caret)}
+ highlightHtmlCode();resizeCodeEditor();updateToolbarState();
+}
+function selectedEditorText(){
+ if(editorMode==='code')return codeEditor.value.slice(codeEditor.selectionStart,codeEditor.selectionEnd);
+ const selection=window.getSelection();return selection&&!selection.isCollapsed?selection.toString():'';
+}
+function applyCodeCommand(button){
+ const command=button.dataset.cmd,selected=selectedEditorText(),wrap=(open,close)=>insertCodeMarkup(open+selected+close,!selected);
+ if(command==='formatBlock'){const tag=(button.dataset.value||'p').toLowerCase();wrap('<'+tag+'>','</'+tag+'>');return}
+ const tags={bold:['<strong>','</strong>'],italic:['<em>','</em>'],underline:['<u>','</u>'],strikeThrough:['<s>','</s>'],subscript:['<sub>','</sub>'],superscript:['<sup>','</sup>']};
+ if(tags[command]){wrap(tags[command][0],tags[command][1]);return}
+ if(command==='insertUnorderedList'||command==='insertOrderedList'){
+  const tag=command==='insertUnorderedList'?'ul':'ol';
+  const items=(selected||'Пункт списка').split(/\r?\n/).map(item=>'<li>'+item+'</li>').join('');
+  insertCodeMarkup('<'+tag+'>'+items+'</'+tag+'>',!selected);return;
+ }
+ if(command==='insertHorizontalRule'){insertCodeMarkup('<hr>');return}
+ if(command==='removeFormat'){
+  const holder=document.createElement('div');holder.innerHTML=selected;
+  holder.querySelectorAll('strong,b,em,i,u,s,del,strike,sub,sup,code,span').forEach(node=>node.replaceWith(...node.childNodes));
+  insertCodeMarkup(holder.innerHTML);
+ }
+}
 document.querySelectorAll('[data-cmd]').forEach(button=>button.addEventListener('click',()=>{
- restoreEditorSelection();
- const cmd=button.dataset.cmd;
+ if(editorMode==='code'){applyCodeCommand(button);return}
+ restoreEditorSelection();const cmd=button.dataset.cmd;
  document.execCommand(cmd,false,button.dataset.value||null);
- rememberEditorSelection();
- updatePlainCompatibility();
- updateSeriesStatus();
+ rememberEditorSelection();updatePlainCompatibility();updateSeriesStatus();updateToolbarState();
 }));
 function escapeInsertedText(value){
  return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
-function insertEditorMarkup(markup){
- restoreEditorSelection();
- document.execCommand('insertHTML',false,markup);
- rememberEditorSelection();
- updatePlainCompatibility();
- updateSeriesStatus();
- refreshCodeEditor();
+function insertEditorMarkup(markup,caretInside=false){
+ if(editorMode==='code'){insertCodeMarkup(markup,caretInside);return}
+ restoreEditorSelection();document.execCommand('insertHTML',false,markup);rememberEditorSelection();
+ updatePlainCompatibility();updateSeriesStatus();refreshCodeEditor();updateToolbarState();
 }
 function insertWrappedElement(tag,placeholder,attributes=''){
- restoreEditorSelection();
- const selection=window.getSelection();
- const selectedText=selection&&!selection.isCollapsed?selection.toString():'';
- const content=escapeInsertedText(selectedText||placeholder);
- insertEditorMarkup('<'+tag+(attributes?' '+attributes:'')+'>'+content+'</'+tag+'>');
+ if(editorMode!=='code')restoreEditorSelection();
+ const selectedText=selectedEditorText(),content=selectedText||escapeInsertedText(placeholder);
+ const opening='<'+tag+(attributes?' '+attributes:'')+'>';
+ insertEditorMarkup(opening+content+'</'+tag+'>',!selectedText);
 }
 function openInsertDialog(title,content,confirmLabel='Вставить'){
  document.getElementById('insert-dialog-title').textContent=title;
@@ -911,24 +981,24 @@ document.getElementById('insert-dialog-backdrop').addEventListener('click',event
  if(event.target.id==='insert-dialog-backdrop')closeInsertDialog();
 });
 function openCharacterPicker(kind){
- const symbols=['©','®','™','§','¶','†','‡','•','‣','–','—','…','«','»','‹','›','→','←','↑','↓','↔','⇒','⇐','⇔','≠','≈','≤','≥','±','×','÷','∞','√','∑','∏','∫','∂','∆','∇','∈','∉','⊂','⊃','∩','∪','∧','∨','¬','∀','∃','°','′','″','€','£','¥','₽','₿','α','β','γ','δ','ε','θ','λ','μ','π','σ','φ','ω'];
- const emojis=['😀','😃','😄','😁','😆','😅','😂','🤣','😊','🙂','🙃','😉','😍','🥰','😘','😎','🤔','🤨','😐','😏','🙄','😴','😭','😡','🤯','🥳','🤓','👀','👍','👎','👏','🙏','💪','🤝','❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','🔥','✨','⭐','🌟','🎉','🎯','🚀','💡','📌','📚','⚖️','💰','🪙','🐈','🐱','🌍','☀️','🌙','☕'];
- const values=kind==='emoji'?emojis:symbols;
- const grid=document.createElement('div');grid.className='insert-grid';
- let chosen='';
- values.forEach(value=>{
-  const button=document.createElement('button');button.type='button';button.textContent=value;button.title=value;
-  button.addEventListener('click',()=>{
-   chosen=value;
-   grid.querySelectorAll('button').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));
-  });
+ const symbols=[
+  ['©','©'],['®','®'],['™','™'],['§','§'],['¶','¶'],['†','†'],['‡','‡'],['•','•'],['‣','‣'],['–','–'],['—','—'],['…','…'],['«','«'],['»','»'],['‹','‹'],['›','›'],
+  ['→','→'],['←','←'],['↑','↑'],['↓','↓'],['↔','↔'],['⇒','⇒'],['⇐','⇐'],['⇔','⇔'],['≠','≠'],['≈','≈'],['≤','≤'],['≥','≥'],['±','±'],['×','×'],['÷','÷'],['∞','∞'],['√','√'],['∑','∑'],['∏','∏'],['∫','∫'],['∂','∂'],['∆','∆'],['∇','∇'],['∈','∈'],['∉','∉'],['⊂','⊂'],['⊃','⊃'],['∩','∩'],['∪','∪'],['∧','∧'],['∨','∨'],['¬','¬'],['∀','∀'],['∃','∃'],
+  ['°','°'],['′','′'],['″','″'],['€','€'],['£','£'],['¥','¥'],['₽','₽'],['₿','₿'],['α','α'],['β','β'],['γ','γ'],['δ','δ'],['ε','ε'],['θ','θ'],['λ','λ'],['μ','μ'],['π','π'],['σ','σ'],['φ','φ'],['ω','ω'],
+  ['&nbsp;','&#160;'],['&ensp;','&#8194;'],['&emsp;','&#8195;'],['&thinsp;','&#8201;'],['&hairsp;','&#8202;'],['&zwnj;','&#8204;'],['&zwj;','&#8205;'],['&shy;','&#173;'],['&#8203;','&#8203;'],
+  ['&lt;','&lt;'],['&gt;','&gt;'],['&amp;','&amp;'],['&quot;','&quot;'],['&apos;','&#39;']
+ ];
+ const emojis=['😀','😃','😄','😁','😆','😅','😂','🤣','😊','🙂','🙃','😉','😍','🥰','😘','😎','🤔','🤨','😐','😏','🙄','😴','😭','😡','🤯','🥳','🤓','👀','👍','👎','👏','🙏','💪','🤝','❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💖','💗','💓','💞','💕','🔥','✨','⭐','🌟','💫','🎉','🎊','🎯','🚀','💡','📌','📚','⚖️','💰','🪙','🐈','🐱','🐈‍⬛','🐶','🦊','🐻','🐼','🐸','🦉','🦋','🌍','🌎','🌏','🌱','🌿','🍀','🌸','🌻','☀️','🌙','☕','🍵','🍰','🍎','🍋','🍓','⚙️','🔧','🔒','🔑','💻','🖥️','📱','🌐','🔗','🧩','📝','✏️','✅','❌','⚠️','❗','❓','➕','➖','➡️','⬅️','⬆️','⬇️'];
+ const values=kind==='emoji'?emojis:symbols,grid=document.createElement('div');grid.className='insert-grid';
+ let chosen=null;
+ values.forEach(entry=>{
+  const label=Array.isArray(entry)?entry[0]:entry,markup=Array.isArray(entry)?entry[1]:escapeInsertedText(entry);
+  const button=document.createElement('button');button.type='button';button.textContent=label;button.title=label;
+  button.addEventListener('click',()=>{chosen=markup;grid.querySelectorAll('button').forEach(item=>item.setAttribute('aria-pressed',String(item===button)))});
   grid.append(button);
  });
  openInsertDialog(kind==='emoji'?'Выбор эмодзи':'Выбор символа',grid);
- const confirm=document.getElementById('insert-dialog-confirm');
- confirm.onclick=()=>{
-  if(chosen){closeInsertDialog();insertEditorMarkup(escapeInsertedText(chosen));}
- };
+ document.getElementById('insert-dialog-confirm').onclick=()=>{if(chosen!==null){closeInsertDialog();insertEditorMarkup(chosen)}};
 }
 function openMathBuilder(){
  const panel=document.createElement('div');
@@ -964,43 +1034,38 @@ function openMathBuilder(){
 }
 
 document.querySelectorAll('[data-insert]').forEach(button=>button.addEventListener('click',()=>{
+ if(editorMode!=='code')restoreEditorSelection();
  const action=button.dataset.insert;
  if(action==='code'){insertWrappedElement('code','код');return}
  if(action==='spoiler'){insertWrappedElement('tg-spoiler','скрытый текст');return}
  if(action==='pre'){
-  restoreEditorSelection();
-  const selection=window.getSelection();
-  const selectedText=selection&&!selection.isCollapsed?selection.toString():'';
-  insertEditorMarkup('<pre><code>'+escapeInsertedText(selectedText||'код')+'</code></pre><p><br></p>');
-  return;
+  const selectedText=selectedEditorText();insertEditorMarkup('<pre><code>'+(selectedText||'код')+'</code></pre><p><br></p>');return;
  }
  if(action==='checkbox'){
-  restoreEditorSelection();
-  const selection=window.getSelection();
-  const selectedText=selection&&!selection.isCollapsed?selection.toString():'';
-  insertEditorMarkup('<ul><li><input type="checkbox">'+escapeInsertedText(selectedText||'Пункт чек-листа')+'</li></ul><p><br></p>');
-  return;
+  const selectedText=selectedEditorText();insertEditorMarkup('<ul><li><input type="checkbox">'+(selectedText||'Пункт чек-листа')+'</li></ul><p><br></p>');return;
  }
  if(action==='details'){
-  restoreEditorSelection();
-  const selection=window.getSelection();
   let content='';
-  if(selection&&!selection.isCollapsed){
-   const holder=document.createElement('div');
-   holder.append(selection.getRangeAt(0).cloneContents());
-   content=holder.innerHTML;
-  }else{
-   content='Содержимое раскрывающегося блока';
+  if(editorMode==='code')content=selectedEditorText()||'Содержимое раскрывающегося блока';
+  else{
+   restoreEditorSelection();const selection=window.getSelection();
+   if(selection&&!selection.isCollapsed){const holder=document.createElement('div');holder.append(selection.getRangeAt(0).cloneContents());content=holder.innerHTML}
+   else content='Содержимое раскрывающегося блока';
   }
-  insertEditorMarkup('<details><summary>Подробнее</summary><div>'+content+'</div></details><p><br></p>');
-  return;
+  insertEditorMarkup('<details><summary>Подробнее</summary><div>'+content+'</div></details><p><br></p>');return;
  }
  if(action==='symbol'){openCharacterPicker('symbol');return}
  if(action==='emoji'){openCharacterPicker('emoji');return}
  if(action==='math'){openMathBuilder();return}
 }));
 function askUrl(label){const value=prompt(label,'https://');return value&&/^https?:\/\//i.test(value)?value.trim():null}
-document.getElementById('link').onclick=()=>{const url=askUrl('Публичный URL ссылки');if(url){editor.focus();document.execCommand('createLink',false,url)}};
+document.getElementById('link').onclick=()=>{
+ const url=askUrl('Публичный URL ссылки');if(!url)return;
+ if(editorMode==='code'){
+  const selected=selectedEditorText(),safeUrl=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  insertEditorMarkup('<a href="'+safeUrl+'">'+(selected||escapeInsertedText(url))+'</a>',!selected);
+ }else{restoreEditorSelection();document.execCommand('createLink',false,url);rememberEditorSelection();refreshCodeEditor();updateToolbarState()}
+};
 function currentPartMediaCount(){
  if(!isSeriesMode())return partMediaCount(Array.from(editor.childNodes).filter(node=>!(node.nodeType===1&&node.classList.contains('series-break'))));
  const selection=window.getSelection();
@@ -1032,8 +1097,7 @@ async function insertMediaFromFile(){
    if(file.type==='video')return '<p><video controls data-local-file="'+path+'" src="'+uri+'"></video></p>';
    return '<p><img data-local-file="'+path+'" src="'+uri+'" alt=""></p>';
   }).join('');
-  editor.focus();
-  document.execCommand('insertHTML',false,markup);
+  insertEditorMarkup(markup);
   status.textContent='Локальные медиа добавлены. Они поддерживаются в рич-сообщениях и альбомах.';
   updatePlainCompatibility();
   updateSeriesStatus();
@@ -1042,8 +1106,8 @@ async function insertMediaFromFile(){
  }
 }
 function insertMediaFromUrl(){
- if(isAlbumMode()&&currentPartMediaCount()>=10){document.getElementById('status').textContent='В одном альбоме допускается не более 10 изображений или видео.';return}
- if(!isRichMode()&&!isAlbumMode()&&currentPartMediaCount()>=1){document.getElementById('status').textContent='В одном обычном сообщении допускается только одно изображение или видео.';return}
+ if(editorMode!=='code'&&isAlbumMode()&&currentPartMediaCount()>=10){document.getElementById('status').textContent='В одном альбоме допускается не более 10 изображений или видео.';return}
+ if(editorMode!=='code'&&!isRichMode()&&!isAlbumMode()&&currentPartMediaCount()>=1){document.getElementById('status').textContent='В одном обычном сообщении допускается только одно изображение или видео.';return}
  const url=askUrl('Публичный URL изображения или видео');
  if(!url)return;
  let parsed;
@@ -1053,8 +1117,7 @@ function insertMediaFromUrl(){
  if(isVideoSite){
   if(isAlbumMode()){document.getElementById('status').textContent='Для альбома укажите прямой публичный URL файла изображения или видео, а не страницу видеохостинга.';return}
   const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
-  editor.focus();
-  document.execCommand('insertHTML',false,'<p><a href="'+safe+'" data-publication-media-preview="video">'+safe+'</a></p>');
+  insertEditorMarkup('<p><a href="'+safe+'" data-publication-media-preview="video">'+safe+'</a></p>');
   document.getElementById('status').textContent=isRichMode()
    ?'Это страница сайта видеохостинга, а не адрес видеофайла. Такой способ импорта годится для публикации в виде обычного сообщения, но не рич-сообщения. Для встраивания видео в рич-сообщение укажите прямой URL файла.'
    :'При публикации ссылка на видеосайт будет скрыта, а её URL передан Telegram для предпросмотра.';
@@ -1065,16 +1128,15 @@ function insertMediaFromUrl(){
  const videoByExtension=/\.(mp4|m4v|mov|webm|mkv)(?:$|[?#])/i.test(path);
  const imageByExtension=/\.(png|jpe?g|gif|webp|avif|bmp)(?:$|[?#])/i.test(path);
  const kind=videoByExtension?'video':imageByExtension?'image':(confirm('Это прямой URL видеофайла?\nНажмите «ОК» для видео или «Отмена» для изображения.')?'video':'image');
- editor.focus();
  const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
  const markup=kind==='image'?'<p><img src="'+safe+'" alt=""></p>':'<p><video controls src="'+safe+'"></video></p>';
- document.execCommand('insertHTML',false,markup);
+ insertEditorMarkup(markup);
  updatePlainCompatibility();
  updateSeriesStatus();
 }
 document.getElementById('media').onclick=insertMediaFromUrl;
 document.getElementById('local-media').onclick=insertMediaFromFile;
-document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,Number(prompt('Количество строк','2'))||2));const cols=Math.max(1,Math.min(10,Number(prompt('Количество столбцов','2'))||2));let table='<table><tbody>';for(let r=0;r<rows;r++){table+='<tr>';for(let c=0;c<cols;c++)table+='<td><br></td>';table+='</tr>'}table+='</tbody></table><p><br></p>';editor.focus();document.execCommand('insertHTML',false,table)};
+document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,Number(prompt('Количество строк','2'))||2));const cols=Math.max(1,Math.min(10,Number(prompt('Количество столбцов','2'))||2));let table='<table><tbody>';for(let r=0;r<rows;r++){table+='<tr>';for(let c=0;c<cols;c++)table+='<td><br></td>';table+='</tr>'}table+='</tbody></table><p><br></p>';insertEditorMarkup(table)};
 const seriesStatus=document.getElementById('series-status');
 function isAlbumMode(){return modeSelect.value==='album'||modeSelect.value==='album_series'}
 function isSeriesMode(){return modeSelect.value.endsWith('_series')||(!isAlbumMode()&&seriesCheckbox.checked)}
@@ -1179,6 +1241,7 @@ function updateModeUI(){
  else seriesCheckbox.checked=modeSelect.value.endsWith('_series');
  updatePlainCompatibility();
  updateSeriesStatus();
+ updateToolbarState();
 }
 function preferredSplitBoundary(text,start,end,limit){
  const segment=text.slice(start,end);
@@ -1309,6 +1372,7 @@ function autoPlaceBreaks(){
 }
 function insertBreakAtSelection(){
  if(!isSeriesMode())return;
+ if(editorMode==='code'){insertCodeMarkup('<!--'+SERIES_BREAK_COMMENT+'-->');return}
  let range=savedRange?savedRange.cloneRange():null;
  const selection=window.getSelection();
  if(!range&&selection&&selection.rangeCount)range=selection.getRangeAt(0).cloneRange();

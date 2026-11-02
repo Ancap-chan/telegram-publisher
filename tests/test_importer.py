@@ -124,3 +124,59 @@ def test_wordpress_title_falls_back_to_slug_when_page_has_no_title(monkeypatch: 
     monkeypatch.setattr(importer, "_download", fake_download)
     result = importer._wordpress_content("https://example.org/testovaya-zapis/")
     assert "<h1>Testovaya zapis</h1>" in result
+
+
+def test_html_import_removes_unsupported_presentation_but_keeps_text_and_supported_formatting() -> None:
+    result = convert_html(
+        '<p style="font-family: Papyrus; color: red; text-align: center">'
+        '<span style="font-size: 32px">Обычный </span><strong>жирный</strong>'
+        '<font face="Comic Sans"> текст</font></p>'
+    )
+    assert "Обычный" in result
+    assert "<strong>жирный</strong>" in result
+    assert "текст" in result
+    assert "Papyrus" not in result
+    assert "Comic Sans" not in result
+    assert "style=" not in result
+    assert "<font" not in result
+    assert "<span" not in result
+
+
+def test_html_import_preserves_rich_html_features_and_supported_attributes() -> None:
+    result = convert_html(
+        '<blockquote expandable>Цитата</blockquote>'
+        '<table bordered striped compact><tr><th>Заголовок</th>'
+        '<td align="right" valign="middle" colspan="2">Значение</td></tr></table>'
+        '<details open><summary>Подробнее</summary><p>Текст</p></details>'
+        '<p><tg-spoiler>Секрет</tg-spoiler><tg-math-block>x^2</tg-math-block></p>'
+    )
+    assert '<blockquote expandable>' in result
+    assert '<table bordered striped compact>' in result
+    assert 'align="right"' in result
+    assert 'valign="middle"' in result
+    assert 'colspan="2"' in result
+    assert '<details open>' in result
+    assert '<tg-spoiler>Секрет</tg-spoiler>' in result
+    assert '<tg-math-block>x^2</tg-math-block>' in result
+
+
+def test_html_import_removes_unsupported_tags_without_losing_their_text() -> None:
+    result = convert_html(
+        '<div class="layout"><p>До</p><custom-widget>Содержимое</custom-widget><p>После</p></div>'
+        '<script>опасный код</script>'
+    )
+    assert '<p>До</p>' in result
+    assert 'Содержимое' in result
+    assert '<custom-widget' not in result
+    assert 'layout' not in result
+    assert 'опасный код' not in result
+
+
+def test_html_import_rejects_unsupported_attribute_values() -> None:
+    result = convert_html(
+        '<a href="javascript:alert(1)">Опасная ссылка</a>'
+        '<table><tr><td align="justify" valign="baseline">Ячейка</td></tr></table>'
+    )
+    assert 'javascript:' not in result
+    assert 'align="justify"' not in result
+    assert 'valign="baseline"' not in result

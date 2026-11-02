@@ -22,16 +22,24 @@ from charset_normalizer import from_bytes
 
 MAX_DOWNLOAD_BYTES = 12 * 1024 * 1024
 USER_AGENT = "TelegramPublisher/0.1 (+local post importer)"
-ALLOWED_TAGS = {
-    "a", "b", "blockquote", "br", "caption", "code", "del", "div", "em",
-    "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "li", "ol",
-    "p", "pre", "s", "strike", "strong", "sub", "sup", "table", "tbody",
-    "td", "th", "thead", "tr", "u", "ul", "video",
+RICH_HTML_TAGS = {
+    "a", "aside", "b", "blockquote", "br", "caption", "cite", "code", "del", "details",
+    "em", "figcaption", "footer", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img",
+    "ins", "li", "mark", "ol", "p", "pre", "s", "strong", "sub",
+    "summary", "sup", "table", "tbody", "td", "th", "thead", "tr", "tg-button",
+    "tg-button-row", "tg-collage", "tg-emoji", "tg-math-block", "tg-reference",
+    "tg-slideshow", "tg-spoiler", "tg-time", "tg-map", "u", "ul", "video",
 }
 DROP_TAGS = {
     "script", "style", "noscript", "iframe", "svg", "canvas", "form",
-    "button", "input", "select", "textarea", "nav", "footer", "header",
-    "aside", "dialog", "template",
+    "button", "input", "select", "textarea", "nav", "header",
+    "dialog", "template",
+}
+BOOLEAN_ATTRIBUTES = {
+    "table": {"bordered", "striped", "compact"},
+    "blockquote": {"expandable"},
+    "details": {"open"},
+    "tg-button": {"request-write-access", "allow-user-chats", "allow-group-chats", "allow-channel-chats"},
 }
 
 
@@ -88,8 +96,9 @@ def _attribute_text(value: object) -> str:
 
 
 def _sanitize_html(content: str, base_url: str | None = None) -> str:
-    """Оставить безопасное форматирование и превратить относительные ссылки в абсолютные."""
+    """Привести HTML к поддерживаемому Telegram Rich HTML и удалить CSS-оформление."""
     soup = BeautifulSoup(content, "html.parser")
+
     for selector in (
         ".sharedaddy", ".sd-sharing", ".jp-share-print",
         ".wp-block-jetpack-sharing-buttons", ".wp-block-social-links",
@@ -100,42 +109,134 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
     ):
         for node in list(soup.select(selector)):
             node.decompose()
+
     for node in list(soup.find_all(DROP_TAGS)):
         node.decompose()
+
+    # Переносим URL из вложенного source в родительский медиаэлемент до очистки тегов.
+    for media in soup.find_all(["video"]):
+        if not media.get("src"):
+            source = media.find("source")
+            source_url = _attribute_text(source.get("src")) if source else ""
+            if source_url:
+                media["src"] = source_url
+
+    # Telegram использует отдельный тег для спойлера; сохраняем смысл
+    # распространённой HTML-формы <span class="tg-spoiler">.
+    for node in list(soup.find_all("span")):
+        classes = node.get("class", [])
+        if isinstance(classes, str):
+            classes = classes.split()
+        if "tg-spoiler" in classes:
+            node.name = "tg-spoiler"
+        else:
+            node.unwrap()
+
     for node in list(soup.find_all(True)):
         if not isinstance(node, Tag):
             continue
+
         if node.name == "img" and not node.get("src"):
             lazy_src = _attribute_text(node.get("data-src")) or _attribute_text(node.get("data-lazy-src"))
             if lazy_src:
                 node["src"] = lazy_src
-        if node.name not in ALLOWED_TAGS:
+
+        if node.name not in RICH_HTML_TAGS:
             node.unwrap()
             continue
-        clean_attrs: dict[str, str] = {}
-        for attr in ("href", "src", "alt", "title", "controls", "colspan", "rowspan"):
+
+        clean_attrs: dict[str, str | None] = {}
+        allowed_by_tag = {
+            "a": {"href", "name"},
+            "blockquote": set(),
+            "code": {"class"},
+            "details": set(),
+            "img": {"src", "alt"},
+            "video": {"src"},
+            "audio": {"src"},
+            "table": set(),
+            "td": {"colspan", "rowspan", "align", "valign"},
+            "th": {"colspan", "rowspan", "align", "valign"},
+            "tg-emoji": {"emoji-id"},
+            "tg-time": {"unix", "format"},
+            "tg-reference": {"name"},
+            "tg-button": {
+                "type", "style", "url", "data", "text", "query", "forward-text",
+                "request-write-access", "allow-user-chats", "allow-group-chats",
+                "allow-channel-chats",
+            },
+            "tg-button-row": {"align"},
+            "tg-map": {"lat", "long", "zoom"},
+        }.get(node.name, set())
+
+        for attr in allowed_by_tag:
             value = _attribute_text(node.get(attr))
             if not value:
                 continue
-            if attr in {"href", "src"}:
+            if attr in {"href", "src", "url"}:
                 if value.lower().startswith(("javascript:", "data:", "file:", "vbscript:")):
                     continue
-                if base_url and attr in {"href", "src"}:
-                    value = urljoin(base_url, value)
-                if attr == "src" and not value.lower().startswith(("https://", "http://")):
+                if attr == "src":
+                    if base_url:
+                        value = urljoin(base_url, value)
+                    if not value.lower().startswith(("https://", "http://")):
+                        continue
+                elif attr in {"href", "url"}:
+                    if base_url and not value.startswith("#") and not re.match(r"^[a-z][a-z0-9+.-]*:", value, re.I):
+                        value = urljoin(base_url, value)
+                    if not re.match(r"^(https?://|mailto:|tel:|tg://|#)", value, re.I):
+                        continue
+            elif attr in {"colspan", "rowspan", "unix", "emoji-id", "lat", "long", "zoom"}:
+                if attr in {"lat", "long"}:
+                    if not re.fullmatch(r"-?\d+(?:\.\d+)?", value):
+                        continue
+                elif not value.isdigit():
+                    continue
+                if attr not in {"lat", "long", "unix"} and int(value) < 1:
+                    continue
+            elif attr == "align":
+                if value not in {"left", "center", "right"}:
+                    continue
+            elif attr == "valign":
+                if value not in {"top", "middle", "bottom"}:
+                    continue
+            elif attr == "format":
+                if value not in {"t", "T", "d", "D", "w", "W", "r", "R", "wDT"}:
+                    continue
+            elif attr == "class":
+                if node.name != "code" or not re.fullmatch(r"language-[a-zA-Z0-9_+.-]+", value):
                     continue
             clean_attrs[attr] = value
+
+        for attr in BOOLEAN_ATTRIBUTES.get(node.name, set()):
+            if node.has_attr(attr):
+                clean_attrs[attr] = None
+
         node.attrs.clear()
         node.attrs.update(clean_attrs)
-    for image in soup.find_all("img"):
+
+    for image in list(soup.find_all("img")):
         if not image.get("src"):
             lazy_src = _attribute_text(image.get("data-src")) or _attribute_text(image.get("data-lazy-src"))
             if lazy_src and base_url:
                 image["src"] = urljoin(base_url, lazy_src)
         if not image.get("src"):
             image.decompose()
-    return str(soup)
 
+    for media in soup.find_all(["video", "audio"]):
+        if not media.get("src"):
+            source = media.find("source")
+            source_url = _attribute_text(source.get("src")) if source else ""
+            if source_url and base_url:
+                source_url = urljoin(base_url, source_url)
+            if source_url.startswith(("https://", "http://")):
+                media["src"] = source_url
+        for source in media.find_all("source"):
+            source.decompose()
+        if not media.get("src"):
+            media.decompose()
+
+    return str(soup)
 
 def convert_html(content: str, base_url: str | None = None) -> str:
     """Очистить HTML, сохранив разметку и публичные ссылки на медиа."""

@@ -238,14 +238,14 @@ function cleanClipboardHtml(markup){
   video.querySelectorAll('source').forEach(source=>source.remove());
  }
  parsed.querySelectorAll('script,style,base,meta,link,iframe,object,embed,svg,canvas,form,button,input,select,textarea').forEach(node=>node.remove());
- const allowed=new Set(['a','b','blockquote','br','caption','cite','code','del','details','em','figcaption','h1','h2','h3','h4','h5','h6','hr','i','img','ins','li','mark','ol','p','pre','s','small','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','u','ul','video','audio']);
+ const allowed=new Set(['a','b','blockquote','br','caption','cite','code','del','details','em','figcaption','footer','h1','h2','h3','h4','h5','h6','hr','i','img','ins','li','mark','ol','p','pre','s','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','tg-map','u','ul','video','audio']);
  const attributes={
   a:['href','name'],code:['class'],img:['src','alt'],video:['src'],audio:['src'],
   table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'],
   td:['colspan','rowspan','align','valign'],th:['colspan','rowspan','align','valign'],
   'tg-emoji':['emoji-id'],'tg-time':['unix','format'],'tg-reference':['name'],
   'tg-button':['type','style','url','data','text','query','forward-text','request-write-access','allow-user-chats','allow-group-chats','allow-channel-chats'],
-  'tg-button-row':['align']
+  'tg-button-row':['align'],'tg-map':['lat','long','zoom']
  };
  const booleanAttributes={table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'], 'tg-button':['request-write-access','allow-user-chats','allow-group-chats','allow-channel-chats']};
  for(const node of Array.from(parsed.body.querySelectorAll('*')).reverse()){
@@ -270,6 +270,15 @@ function cleanClipboardHtml(markup){
    if(attribute==='src'&&!/^https?:\/\//i.test(value))node.removeAttribute(attribute);
    if(attribute!=='src'&&!/^(https?:\/\/|mailto:|tel:|tg:\/\/|#)/i.test(value))node.removeAttribute(attribute);
   }
+  for(const attribute of ['colspan','rowspan','unix','emoji-id','lat','long','zoom']){
+   if(!node.hasAttribute(attribute))continue;
+   const value=node.getAttribute(attribute)||'';
+   if(!/^-?\d+(?:\.\d+)?$/.test(value)||(['colspan','rowspan','emoji-id'].includes(attribute)&&Number(value)<1))node.removeAttribute(attribute);
+  }
+  if(node.hasAttribute('align')&&!['left','center','right'].includes(node.getAttribute('align')))node.removeAttribute('align');
+  if(node.hasAttribute('valign')&&!['top','middle','bottom'].includes(node.getAttribute('valign')))node.removeAttribute('valign');
+  if(node.hasAttribute('format')&&!['t','T','d','D','w','W','r','R','wDT'].includes(node.getAttribute('format')))node.removeAttribute('format');
+  if(tag==='code'&&node.hasAttribute('class')&&!/^language-[a-zA-Z0-9_+.-]+$/.test(node.getAttribute('class')))node.removeAttribute('class');
   if((tag==='img'||tag==='video'||tag==='audio')&&!node.hasAttribute('src'))node.remove();
  }
  return {html:parsed.body.innerHTML,removedImages};

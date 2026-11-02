@@ -53,9 +53,11 @@ body.code-mode #editor{display:none}
 body.code-mode #code-editor{display:block}
 .editor-mode-tools{padding-bottom:2px;border-bottom:1px solid #e4e6e9}
 .editor-mode-tools button[aria-pressed="true"]{background:#245eb5;color:#fff;border-color:#245eb5}
-body.code-mode .edit-tools{display:none}
+body.code-mode .edit-tools{display:flex}
+.edit-tools button[aria-pressed="true"]{background:#dce8fa;border-color:#789bd0;color:#173d79;box-shadow:inset 0 0 0 1px #789bd0}
+.insert-grid button[aria-pressed="true"]{background:#245eb5;color:#fff;border-color:#194b95;box-shadow:0 0 0 2px #9bbcf8}
 #editor img,#editor video{max-width:100%;height:auto}
-#editor tg-spoiler{background:#e1e4e8;color:#252a31;border-radius:3px;padding:0 3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+#editor tg-spoiler{background:#596273;color:#fff;border-radius:3px;padding:0 3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
 #editor details{margin:10px 0;padding:10px 12px;border:1px solid #d5d9df;border-radius:6px;background:#f7f8fa}
 #editor details>summary{cursor:pointer;font-weight:600;color:#34445a}
 #editor details> :not(summary){margin-top:8px}
@@ -476,6 +478,7 @@ function setEditorMode(nextMode){
   codeEditor.focus();
   const codeOffset=textOffsetToHtmlOffset(codeEditor.value,offset);
   codeEditor.setSelectionRange(codeOffset,codeOffset);
+  updateToolbarState();
   return;
  }
  const offset=htmlOffsetToTextOffset(codeEditor.value,codeEditor.selectionStart);
@@ -487,8 +490,12 @@ function setEditorMode(nextMode){
  editor.focus();
  setVisualTextOffset(offset);
  rememberEditorSelection();
+ updateToolbarState();
 }
-codeEditor.addEventListener('input',()=>{highlightHtmlCode();resizeCodeEditor();});
+codeEditor.addEventListener('input',()=>{highlightHtmlCode();resizeCodeEditor();updateToolbarState();});
+codeEditor.addEventListener('keyup',updateToolbarState);
+codeEditor.addEventListener('click',updateToolbarState);
+codeEditor.addEventListener('select',updateToolbarState);
 window.addEventListener('resize',resizeCodeEditor);
 codeEditor.addEventListener('scroll',()=>{
  codeHighlight.scrollTop=codeEditor.scrollTop;
@@ -517,6 +524,46 @@ function applyConfig(value){
  else if(!channelSelect.options.length)document.getElementById('status').textContent='Сначала укажите канал для публикации с помощью кнопки «Настроить каналы…».';
  updateModeUI();
  if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
+}
+function codeTagStackAtCursor(markup,offset){
+ const source=String(markup||'').slice(0,Math.max(0,offset)),stack=[];
+ const voidTags=new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
+ const tokens=source.match(/<!--[\\s\\S]*?-->|<[^>]*>/g)||[];
+ for(const token of tokens){
+  if(token.startsWith('<!--')||token.startsWith('<!'))continue;
+  const match=token.match(/^<(\\/)?\\s*([\\w:-]+)/);if(!match)continue;
+  const closing=Boolean(match[1]),tag=match[2].toLowerCase();
+  if(closing){const index=stack.lastIndexOf(tag);if(index>=0)stack.splice(index)}
+  else if(!voidTags.has(tag)&&!token.endsWith('/>'))stack.push(tag);
+ }
+ return stack;
+}
+function updateToolbarState(){
+ const buttons=document.querySelectorAll('.edit-tools button[data-cmd],.edit-tools button[data-insert]');
+ let tags=[];
+ if(editorMode==='code')tags=codeTagStackAtCursor(codeEditor.value,codeEditor.selectionStart);
+ else{
+  const selection=window.getSelection();let node=selection&&selection.focusNode;
+  if(node&&node.nodeType===Node.TEXT_NODE)node=node.parentElement;
+  while(node&&node!==editor){if(node.nodeType===Node.ELEMENT_NODE)tags.push(node.localName);node=node.parentElement}
+ }
+ const has=names=>names.some(name=>tags.includes(name));
+ const commandTags={bold:['b','strong'],italic:['i','em'],underline:['u'],strikeThrough:['s','del'],subscript:['sub'],superscript:['sup']};
+ buttons.forEach(button=>{
+  const cmd=button.dataset.cmd,insert=button.dataset.insert;let active=false;
+  if(editorMode==='visual'&&cmd&&cmd!=='formatBlock'&&cmd!=='removeFormat'&&cmd!=='insertHorizontalRule'){
+   try{active=document.queryCommandState(cmd)}catch(_error){}
+  }
+  if(cmd==='formatBlock')active=has([String(button.dataset.value||'').toLowerCase()]);
+  else if(commandTags[cmd])active=active||has(commandTags[cmd]);
+  if(cmd==='insertUnorderedList')active=has(['ul']);
+  if(cmd==='insertOrderedList')active=has(['ol']);
+  if(insert==='code')active=has(['code']);
+  if(insert==='spoiler')active=has(['tg-spoiler']);
+  if(insert==='pre')active=has(['pre']);
+  if(insert==='details')active=has(['details']);
+  button.setAttribute('aria-pressed',String(Boolean(active)));
+ });
 }
 function rememberEditorSelection(){
  const selection=window.getSelection();
@@ -657,9 +704,10 @@ function blobToDataUrl(blob){
  });
 }
 function hideContextMenu(){contextMenu.hidden=true}
-editor.addEventListener('mouseup',rememberEditorSelection);
-editor.addEventListener('keyup',rememberEditorSelection);
-editor.addEventListener('input',rememberEditorSelection);
+editor.addEventListener('mouseup',()=>{rememberEditorSelection();updateToolbarState()});
+editor.addEventListener('keyup',()=>{rememberEditorSelection();updateToolbarState()});
+editor.addEventListener('input',()=>{rememberEditorSelection();updateToolbarState()});
+document.querySelector('.edit-tools').addEventListener('mousedown',event=>{if(event.target.closest('button'))event.preventDefault()});
 editor.addEventListener('paste',event=>{
  const clipboard=event.clipboardData;
  if(!clipboard)return;
@@ -670,7 +718,7 @@ editor.addEventListener('paste',event=>{
   return;
  }
 });
-document.addEventListener('selectionchange',rememberEditorSelection);
+document.addEventListener('selectionchange',()=>{rememberEditorSelection();updateToolbarState()});
 editor.addEventListener('click',event=>{
  const marker=event.target.closest('.series-break');
  if(marker&&isSeriesMode()){

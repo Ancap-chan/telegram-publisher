@@ -524,6 +524,7 @@ function applyConfig(value){
  else if(!channelSelect.options.length)document.getElementById('status').textContent='Сначала укажите канал для публикации с помощью кнопки «Настроить каналы…».';
  updateModeUI();
  if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
+ updateToolbarState();
 }
 function codeTagStackAtCursor(markup,offset){
  const source=String(markup||'').slice(0,Math.max(0,offset)),stack=[];
@@ -1103,8 +1104,8 @@ async function insertMediaFromFile(){
  }
 }
 function insertMediaFromUrl(){
- if(isAlbumMode()&&currentPartMediaCount()>=10){document.getElementById('status').textContent='В одном альбоме допускается не более 10 изображений или видео.';return}
- if(!isRichMode()&&!isAlbumMode()&&currentPartMediaCount()>=1){document.getElementById('status').textContent='В одном обычном сообщении допускается только одно изображение или видео.';return}
+ if(editorMode!=='code'&&isAlbumMode()&&currentPartMediaCount()>=10){document.getElementById('status').textContent='В одном альбоме допускается не более 10 изображений или видео.';return}
+ if(editorMode!=='code'&&!isRichMode()&&!isAlbumMode()&&currentPartMediaCount()>=1){document.getElementById('status').textContent='В одном обычном сообщении допускается только одно изображение или видео.';return}
  const url=askUrl('Публичный URL изображения или видео');
  if(!url)return;
  let parsed;
@@ -1238,6 +1239,7 @@ function updateModeUI(){
  else seriesCheckbox.checked=modeSelect.value.endsWith('_series');
  updatePlainCompatibility();
  updateSeriesStatus();
+ updateToolbarState();
 }
 function preferredSplitBoundary(text,start,end,limit){
  const segment=text.slice(start,end);

@@ -24,16 +24,16 @@ MAX_DOWNLOAD_BYTES = 12 * 1024 * 1024
 USER_AGENT = "TelegramPublisher/0.1 (+local post importer)"
 RICH_HTML_TAGS = {
     "a", "b", "blockquote", "br", "caption", "cite", "code", "del", "details",
-    "em", "figcaption", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img",
-    "ins", "li", "mark", "ol", "p", "pre", "s", "small", "strong", "sub",
+    "em", "figcaption", "footer", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img",
+    "ins", "li", "mark", "ol", "p", "pre", "s", "strong", "sub",
     "summary", "sup", "table", "tbody", "td", "th", "thead", "tr", "tg-button",
     "tg-button-row", "tg-collage", "tg-emoji", "tg-math-block", "tg-reference",
-    "tg-slideshow", "tg-spoiler", "tg-time", "u", "ul", "video", "audio",
+    "tg-slideshow", "tg-spoiler", "tg-time", "tg-map", "u", "ul", "video", "audio",
 }
 DROP_TAGS = {
     "script", "style", "noscript", "iframe", "svg", "canvas", "form",
     "button", "input", "select", "textarea", "nav", "footer", "header",
-    "dialog", "template",
+    "dialog", "header", "template",
 }
 BOOLEAN_ATTRIBUTES = {
     "table": {"bordered", "striped", "compact"},
@@ -113,6 +113,14 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
     for node in list(soup.find_all(DROP_TAGS)):
         node.decompose()
 
+    # Переносим URL из вложенного source в родительский медиаэлемент до очистки тегов.
+    for media in soup.find_all(["video", "audio"]):
+        if not media.get("src"):
+            source = media.find("source")
+            source_url = _attribute_text(source.get("src")) if source else ""
+            if source_url:
+                media["src"] = source_url
+
     # Telegram использует отдельный тег для спойлера; сохраняем смысл
     # распространённой HTML-формы <span class="tg-spoiler">.
     for node in list(soup.find_all("span")):
@@ -158,6 +166,7 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
                 "allow-channel-chats",
             },
             "tg-button-row": {"align"},
+            "tg-map": {"lat", "long", "zoom"},
         }.get(node.name, set())
 
         for attr in allowed_by_tag:
@@ -217,7 +226,6 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
                 source_url = urljoin(base_url, source_url)
             if source_url.startswith(("https://", "http://")):
                 media["src"] = source_url
-        media.find_all("source", recursive=False)
         for source in media.find_all("source"):
             source.decompose()
         if not media.get("src"):

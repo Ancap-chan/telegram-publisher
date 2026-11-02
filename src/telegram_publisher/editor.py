@@ -238,7 +238,7 @@ function cleanClipboardHtml(markup){
   video.querySelectorAll('source').forEach(source=>source.remove());
  }
  parsed.querySelectorAll('script,style,base,meta,link,iframe,object,embed,svg,canvas,form,button,input,select,textarea').forEach(node=>node.remove());
- const allowed=new Set(['a','b','blockquote','br','caption','cite','code','del','details','em','figcaption','footer','h1','h2','h3','h4','h5','h6','hr','i','img','ins','li','mark','ol','p','pre','s','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','tg-map','u','ul','video','audio']);
+ const allowed=new Set(['a','aside','b','blockquote','br','caption','cite','code','del','details','em','figcaption','footer','h1','h2','h3','h4','h5','h6','hr','i','img','ins','li','mark','ol','p','pre','s','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','tg-map','u','ul','video','audio']);
  const attributes={
   a:['href','name'],code:['class'],img:['src','alt'],video:['src'],audio:['src'],
   table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'],

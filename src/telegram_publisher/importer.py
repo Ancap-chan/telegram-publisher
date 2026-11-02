@@ -18,6 +18,13 @@ from urllib.request import Request, urlopen
 import markdown
 from bs4 import BeautifulSoup, Tag
 from bs4.formatter import HTMLFormatter
+
+
+class PreserveAttributeOrderFormatter(HTMLFormatter):
+    """Сохранять порядок атрибутов, заданный при очистке HTML."""
+
+    def attributes(self, tag: Tag):
+        return tag.attrs.items()
 from charset_normalizer import from_bytes
 
 
@@ -242,7 +249,7 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
         if not media.get("src"):
             media.decompose()
 
-    return soup.decode(formatter=HTMLFormatter(sort_attributes=False))
+    return soup.decode(formatter=PreserveAttributeOrderFormatter())
 
 def convert_html(content: str, base_url: str | None = None) -> str:
     """Очистить HTML, сохранив разметку и публичные ссылки на медиа."""

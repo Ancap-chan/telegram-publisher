@@ -35,8 +35,7 @@ button,select{font:inherit;padding:7px 10px;border:1px solid #ccc;border-radius:
 button:hover{background:#eee}
 main{flex:1;overflow:auto;padding:24px}
 #editor{max-width:1000px;min-height:calc(100vh - 190px);margin:0 auto;background:#fff;padding:32px;box-shadow:0 1px 5px #0001;outline:none;line-height:1.55;overflow-wrap:anywhere}
-#code-editor{display:block;width:min(100%,1200px);min-height:calc(100vh - 190px);margin:0 auto;padding:24px;border:1px solid #ccd2da;border-radius:5px;background:#1e2329;color:#e8edf2;font:13px/1.55 Consolas,"Courier New",monospace;tab-size:2;white-space:pre;overflow:auto;resize:vertical}
-#code-editor[hidden]{display:none}
+#code-editor{display:none;width:min(100%,1200px);min-height:calc(100vh - 190px);margin:0 auto;padding:24px;border:1px solid #ccd2da;border-radius:5px;background:#1e2329;color:#e8edf2;font:13px/1.55 Consolas,"Courier New",monospace;tab-size:2;white-space:pre;overflow:auto;resize:vertical}
 body.code-mode #editor{display:none}
 body.code-mode #code-editor{display:block}
 .editor-mode-tools{padding-bottom:2px;border-bottom:1px solid #e4e6e9}
@@ -92,7 +91,7 @@ button:disabled{opacity:.55;cursor:default}
 <button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button class="heading-tool" data-cmd="formatBlock" data-value="h1" data-rich-only>H1</button><button class="heading-tool" data-cmd="formatBlock" data-value="h2" data-rich-only>H2</button><button class="heading-tool" data-cmd="formatBlock" data-value="h3" data-rich-only>H3</button><button class="heading-tool" data-cmd="formatBlock" data-value="h4" data-rich-only>H4</button><button class="heading-tool" data-cmd="formatBlock" data-value="h5" data-rich-only>H5</button><button class="heading-tool" data-cmd="formatBlock" data-value="h6" data-rich-only>H6</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
 <button id="link">Ссылка</button><button id="media">Медиа по URL</button><button id="local-media" hidden>Медиа из файла</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span></div>
 </header>
-<div id="series-status" class="series-status" aria-live="polite" hidden></div><main><div id="editor" contenteditable="true" spellcheck="true"></div><textarea id="code-editor" aria-label="HTML-код публикации" spellcheck="false" autocomplete="off" autocapitalize="off" hidden></textarea></main>
+<div id="series-status" class="series-status" aria-live="polite" hidden></div><main><div id="editor" contenteditable="true" spellcheck="true"></div><textarea id="code-editor" aria-label="HTML-код публикации" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea></main>
 <div id="context-menu" class="context-menu" hidden>
 <button data-edit="cut">Вырезать</button>
 <button data-edit="copy">Копировать</button>
@@ -944,6 +943,7 @@ modeSelect.addEventListener('change',()=>{
  if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
  else editor.querySelectorAll('.series-break').forEach(node=>node.remove());
  updateModeUI();
+ refreshCodeEditor();
 });
 seriesCheckbox.addEventListener('change',()=>{
  commitCodeToVisual();
@@ -954,6 +954,7 @@ seriesCheckbox.addEventListener('change',()=>{
  if(seriesCheckbox.checked&&modeSelect.value.endsWith('_series'))autoPlaceBreaks();
  else editor.querySelectorAll('.series-break').forEach(node=>node.remove());
  updateModeUI();
+ refreshCodeEditor();
 });
 function currentResult(action){
  commitCodeToVisual();

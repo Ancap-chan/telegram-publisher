@@ -407,10 +407,17 @@ function rememberEditorSelection(){
 }
 function restoreEditorSelection(){
  editor.focus();
- if(!savedRange)return false;
  const selection=window.getSelection();
+ if(!selection)return false;
  selection.removeAllRanges();
- selection.addRange(savedRange);
+ if(savedRange){
+  selection.addRange(savedRange);
+  return true;
+ }
+ const range=document.createRange();
+ range.selectNodeContents(editor);
+ range.collapse(false);
+ selection.addRange(range);
  return true;
 }
 function cleanClipboardHtml(markup){

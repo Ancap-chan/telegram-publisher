@@ -54,7 +54,26 @@ body.code-mode #code-editor{display:block}
 .editor-mode-tools{padding-bottom:2px;border-bottom:1px solid #e4e6e9}
 .editor-mode-tools button[aria-pressed="true"]{background:#245eb5;color:#fff;border-color:#245eb5}
 body.code-mode .edit-tools{display:none}
-#editor img,#editor video{max-width:100%;height:auto}\n#editor input[type=checkbox]{width:16px;height:16px;vertical-align:middle;margin:0 6px 0 0}
+#editor img,#editor video{max-width:100%;height:auto}
+#editor tg-spoiler{background:#e1e4e8;color:#252a31;border-radius:3px;padding:0 3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+#editor details{margin:10px 0;padding:10px 12px;border:1px solid #d5d9df;border-radius:6px;background:#f7f8fa}
+#editor details>summary{cursor:pointer;font-weight:600;color:#34445a}
+#editor details> :not(summary){margin-top:8px}
+#insert-dialog-backdrop{position:fixed;inset:0;z-index:2100;display:none;align-items:center;justify-content:center;padding:20px;background:#17202b66}
+#insert-dialog-backdrop.open{display:flex}
+#insert-dialog{width:min(680px,100%);max-height:min(760px,calc(100vh - 40px));display:flex;flex-direction:column;background:#fff;border:1px solid #d6dbe1;border-radius:12px;box-shadow:0 18px 60px #0003;overflow:hidden;color:#20252b}
+#insert-dialog .dialog-body{display:block;padding:18px 22px;overflow:auto;min-height:0}
+.insert-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:6px}
+.insert-grid button{min-height:40px;font-size:19px;padding:5px}
+.insert-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.insert-tabs button[aria-pressed=true]{background:#245eb5;color:#fff;border-color:#245eb5}
+#math-input{width:100%;min-height:72px;padding:10px;border:1px solid #c9cfd7;border-radius:6px;font:16px Consolas,monospace;resize:vertical}
+.math-tools{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.math-tools button{min-width:42px}
+.math-mode{display:flex;gap:16px;align-items:center;margin-top:12px}
+.insert-hint{font-size:12px;color:#69727e;line-height:1.45;margin-top:8px}
+@media(max-width:620px){#insert-dialog-backdrop{padding:8px}#insert-dialog{max-height:calc(100vh - 16px)}#insert-dialog .dialog-body{padding:14px}} 
+#editor input[type=checkbox]{width:16px;height:16px;vertical-align:middle;margin:0 6px 0 0}
 #editor table{border-collapse:collapse;width:100%}
 #editor td,#editor th{border:1px solid #888;padding:6px}
 footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
@@ -180,6 +199,13 @@ button:disabled{opacity:.55;cursor:default}
    <button type="button" id="channel-dialog-cancel">Отмена</button>
    <button type="button" id="channel-profile-save" class="primary">Сохранить</button>
   </div>
+ </section>
+</div>
+<div id="insert-dialog-backdrop" role="presentation">
+ <section id="insert-dialog" role="dialog" aria-modal="true" aria-labelledby="insert-dialog-title">
+  <div class="dialog-heading"><h2 id="insert-dialog-title">Вставка</h2><button type="button" class="dialog-close" id="insert-dialog-close" aria-label="Закрыть">×</button></div>
+  <div class="dialog-body" id="insert-dialog-content"></div>
+  <div class="dialog-footer"><span class="spacer"></span><button type="button" id="insert-dialog-cancel">Отмена</button><button type="button" class="primary" id="insert-dialog-confirm">Вставить</button></div>
  </section>
 </div>
 <footer>
@@ -349,24 +375,92 @@ function commitCodeToVisual(){
 function refreshCodeEditor(){
  if(editorMode==='code')setCodeValue(serializeEditorForCode());
 }
+function visualTextOffset(){
+ const selection=window.getSelection();
+ if(!selection||!selection.rangeCount)return 0;
+ const range=document.createRange();
+ range.selectNodeContents(editor);
+ try{range.setEnd(selection.focusNode,selection.focusOffset)}catch(_error){return 0}
+ return range.toString().length;
+}
+function setVisualTextOffset(offset){
+ const walker=document.createTreeWalker(editor,NodeFilter.SHOW_TEXT);
+ let remaining=Math.max(0,offset),node,last=null;
+ while((node=walker.nextNode())){
+  last=node;
+  if(remaining<=node.nodeValue.length){
+   const range=document.createRange();
+   range.setStart(node,remaining);range.collapse(true);
+   const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+   return;
+  }
+  remaining-=node.nodeValue.length;
+ }
+ const range=document.createRange();
+ if(last)range.setStart(last,last.nodeValue.length);
+ else range.selectNodeContents(editor);
+ range.collapse(true);
+ const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+}
+function htmlOffsetToTextOffset(markup,htmlOffset){
+ const template=document.createElement('template');
+ template.innerHTML=String(markup||'').slice(0,Math.max(0,htmlOffset));
+ return template.content.textContent.length;
+}
+function textOffsetToHtmlOffset(markup,textOffset){
+ const source=String(markup||'');
+ let index=0,visible=0;
+ while(index<source.length&&visible<textOffset){
+  if(source[index]==='<'){
+   if(source.startsWith('<!--',index)){
+    const end=source.indexOf('-->',index+4);index=end<0?source.length:end+3;continue;
+   }
+   let end=index+1,quote='';
+   for(;end<source.length;end++){
+    const ch=source[end];
+    if(quote){if(ch===quote)quote='';}
+    else if(ch==='"'||ch==="'")quote=ch;
+    else if(ch==='>'){end++;break;}
+   }
+   index=end;continue;
+  }
+  if(source[index]==='&'){
+   const end=source.indexOf(';',index+1);
+   if(end>index&&end-index<16){
+    const decoder=document.createElement('textarea');
+    decoder.innerHTML=source.slice(index,end+1);
+    const decoded=decoder.value;
+    if(decoded!==source.slice(index,end+1)){visible+=decoded.length;index=end+1;continue;}
+   }
+  }
+  visible++;index++;
+ }
+ return index;
+}
 function setEditorMode(nextMode){
  if(nextMode===editorMode)return;
  if(nextMode==='code'){
-  setCodeValue(serializeEditorForCode());
+  const offset=visualTextOffset();
+  const markup=serializeEditorForCode();
+  setCodeValue(markup);
   editorMode='code';
   document.body.classList.add('code-mode');
   resizeCodeEditor();
   visualModeButton.setAttribute('aria-pressed','false');
   codeModeButton.setAttribute('aria-pressed','true');
   codeEditor.focus();
+  const codeOffset=textOffsetToHtmlOffset(codeEditor.value,offset);
+  codeEditor.setSelectionRange(codeOffset,codeOffset);
   return;
  }
+ const offset=htmlOffsetToTextOffset(codeEditor.value,codeEditor.selectionStart);
  commitCodeToVisual();
  editorMode='visual';
  document.body.classList.remove('code-mode');
  visualModeButton.setAttribute('aria-pressed','true');
  codeModeButton.setAttribute('aria-pressed','false');
  editor.focus();
+ setVisualTextOffset(offset);
  rememberEditorSelection();
 }
 codeEditor.addEventListener('input',()=>{highlightHtmlCode();resizeCodeEditor();});
@@ -777,6 +871,73 @@ function insertWrappedElement(tag,placeholder,attributes=''){
  const content=escapeInsertedText(selectedText||placeholder);
  insertEditorMarkup('<'+tag+(attributes?' '+attributes:'')+'>'+content+'</'+tag+'>');
 }
+function openInsertDialog(title,content,confirmLabel='Вставить'){
+ document.getElementById('insert-dialog-title').textContent=title;
+ document.getElementById('insert-dialog-content').replaceChildren(content);
+ document.getElementById('insert-dialog-confirm').textContent=confirmLabel;
+ document.getElementById('insert-dialog-backdrop').classList.add('open');
+}
+function closeInsertDialog(){
+ document.getElementById('insert-dialog-backdrop').classList.remove('open');
+}
+document.getElementById('insert-dialog-close').addEventListener('click',closeInsertDialog);
+document.getElementById('insert-dialog-cancel').addEventListener('click',closeInsertDialog);
+document.getElementById('insert-dialog-backdrop').addEventListener('click',event=>{
+ if(event.target.id==='insert-dialog-backdrop')closeInsertDialog();
+});
+function openCharacterPicker(kind){
+ const symbols=['©','®','™','§','¶','†','‡','•','‣','–','—','…','«','»','‹','›','→','←','↑','↓','↔','⇒','⇐','⇔','≠','≈','≤','≥','±','×','÷','∞','√','∑','∏','∫','∂','∆','∇','∈','∉','⊂','⊃','∩','∪','∧','∨','¬','∀','∃','°','′','″','€','£','¥','₽','₿','α','β','γ','δ','ε','θ','λ','μ','π','σ','φ','ω'];
+ const emojis=['😀','😃','😄','😁','😆','😅','😂','🤣','😊','🙂','🙃','😉','😍','🥰','😘','😎','🤔','🤨','😐','😏','🙄','😴','😭','😡','🤯','🥳','🤓','👀','👍','👎','👏','🙏','💪','🤝','❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','🔥','✨','⭐','🌟','🎉','🎯','🚀','💡','📌','📚','⚖️','💰','🪙','🐈','🐱','🌍','☀️','🌙','☕'];
+ const values=kind==='emoji'?emojis:symbols;
+ const grid=document.createElement('div');grid.className='insert-grid';
+ let chosen='';
+ values.forEach(value=>{
+  const button=document.createElement('button');button.type='button';button.textContent=value;button.title=value;
+  button.addEventListener('click',()=>{
+   chosen=value;
+   grid.querySelectorAll('button').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));
+  });
+  grid.append(button);
+ });
+ openInsertDialog(kind==='emoji'?'Выбор эмодзи':'Выбор символа',grid);
+ const confirm=document.getElementById('insert-dialog-confirm');
+ confirm.onclick=()=>{
+  if(chosen){closeInsertDialog();insertEditorMarkup(escapeInsertedText(chosen));}
+ };
+}
+function openMathBuilder(){
+ const panel=document.createElement('div');
+ const input=document.createElement('textarea');input.id='math-input';input.placeholder='Формула';input.value='x^2 + y^2 = z^2';
+ const tools=document.createElement('div');tools.className='math-tools';
+ const snippets=[
+  ['Дробь','\\frac{a}{b}'],['Корень','\\sqrt{x}'],['Степень','^{2}'],['Индекс','_{i}'],
+  ['Сумма','\\sum_{i=1}^{n}'],['Интеграл','\\int_{a}^{b}'],['Скобки','\\left( \\right)'],
+  ['π','\\pi'],['α','\\alpha'],['β','\\beta'],['θ','\\theta'],['∞','\\infty'],
+  ['≤','\\leq'],['≥','\\geq'],['≠','\\neq'],['×','\\times'],['÷','\\div'],['±','\\pm']
+ ];
+ snippets.forEach(([label,value])=>{
+  const button=document.createElement('button');button.type='button';button.textContent=label;button.title='Добавить '+label;
+  button.addEventListener('click',()=>{
+   const start=input.selectionStart,end=input.selectionEnd;
+   input.setRangeText(value,start,end,'end');input.focus();
+  });
+  tools.append(button);
+ });
+ const mode=document.createElement('div');mode.className='math-mode';
+ mode.innerHTML='<label><input type="radio" name="math-display" value="inline" checked> В строке</label><label><input type="radio" name="math-display" value="block"> Отдельным блоком</label>';
+ const hint=document.createElement('div');hint.className='insert-hint';hint.textContent='Используйте кнопки для построения формулы. При необходимости выражение можно отредактировать вручную.';
+ panel.append(tools,input,mode,hint);
+ openInsertDialog('Конструктор формул',panel);
+ document.getElementById('insert-dialog-confirm').onclick=()=>{
+  const value=input.value.trim();if(!value)return;
+  const block=mode.querySelector('input:checked').value==='block';
+  closeInsertDialog();
+  insertEditorMarkup(block
+   ?'<tg-math-block>'+escapeInsertedText(value)+'</tg-math-block><p><br></p>'
+   :'<tg-math>'+escapeInsertedText(value)+'</tg-math>');
+ };
+}
+
 document.querySelectorAll('[data-insert]').forEach(button=>button.addEventListener('click',()=>{
  const action=button.dataset.insert;
  if(action==='code'){insertWrappedElement('code','код');return}
@@ -796,28 +957,16 @@ document.querySelectorAll('[data-insert]').forEach(button=>button.addEventListen
   return;
  }
  if(action==='details'){
-  insertEditorMarkup('<details><summary>Подробнее</summary><p>Содержимое раскрывающегося блока</p></details><p><br></p>');
+  restoreEditorSelection();
+  const selection=window.getSelection();
+  const selectedText=selection&&!selection.isCollapsed?selection.toString():'';
+  const content=escapeInsertedText(selectedText||'Содержимое раскрывающегося блока');
+  insertEditorMarkup('<details><summary>Подробнее</summary><div>'+content+'</div></details><p><br></p>');
   return;
  }
- if(action==='symbol'){
-  const value=prompt('Введите символ или последовательность символов','© ® ™ § ¶ † ‡ • — – … → ← ≠ ≤ ≥ × ÷ ± ∞');
-  if(value)insertEditorMarkup(escapeInsertedText(value));
-  return;
- }
- if(action==='emoji'){
-  const value=prompt('Введите эмодзи','😀 🙂 🤔 ❤️ 👍 👎 🎉 🔥 🚀');
-  if(value)insertEditorMarkup(escapeInsertedText(value));
-  return;
- }
- if(action==='math'){
-  const value=prompt('Введите формулу в синтаксисе LaTeX','x^2 + y^2 = z^2');
-  if(value){
-   const block=confirm('Разместить формулу отдельным блоком?\\nОК — блочная формула; Отмена — встроенная формула.');
-   insertEditorMarkup(block
-    ?'<tg-math-block>'+escapeInsertedText(value)+'</tg-math-block><p><br></p>'
-    :'<tg-math>'+escapeInsertedText(value)+'</tg-math>');
-  }
- }
+ if(action==='symbol'){openCharacterPicker('symbol');return}
+ if(action==='emoji'){openCharacterPicker('emoji');return}
+ if(action==='math'){openMathBuilder();return}
 }));
 function askUrl(label){const value=prompt(label,'https://');return value&&/^https?:\/\//i.test(value)?value.trim():null}
 document.getElementById('link').onclick=()=>{const url=askUrl('Публичный URL ссылки');if(url){editor.focus();document.execCommand('createLink',false,url)}};

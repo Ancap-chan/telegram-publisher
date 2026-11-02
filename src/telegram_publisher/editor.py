@@ -1285,6 +1285,7 @@ function currentTableCell(){
 function addTableRow(){
  const cell=currentTableCell();if(!cell)return;
  const row=cell.parentElement,table=cell.closest('table'),position=tableCellPosition(cell);
+ if(table.rows.length>=500){document.getElementById('status').textContent='В таблице не может быть более 500 строк.';return}
  const cols=Math.max(1,...tableGrid(table).map(item=>item.length));
  const next=row.nextElementSibling||null,newRow=document.createElement('tr');
  for(let i=0;i<cols;i++){const td=document.createElement('td');td.innerHTML='<br>';td.setAttribute('align','left');td.setAttribute('valign','middle');newRow.append(td)}

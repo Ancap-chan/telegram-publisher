@@ -528,10 +528,10 @@ function applyConfig(value){
 function codeTagStackAtCursor(markup,offset){
  const source=String(markup||'').slice(0,Math.max(0,offset)),stack=[];
  const voidTags=new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
- const tokens=source.match(/<!--[\\s\\S]*?-->|<[^>]*>/g)||[];
+ const tokens=source.match(/<!--[\s\S]*?-->|<[^>]*>/g)||[];
  for(const token of tokens){
   if(token.startsWith('<!--')||token.startsWith('<!'))continue;
-  const match=token.match(/^<(\\/)?\\s*([\\w:-]+)/);if(!match)continue;
+  const match=token.match(/^<(\/)?\s*([\w:-]+)/);if(!match)continue;
   const closing=Boolean(match[1]),tag=match[2].toLowerCase();
   if(closing){const index=stack.lastIndexOf(tag);if(index>=0)stack.splice(index)}
   else if(!voidTags.has(tag)&&!token.endsWith('/>'))stack.push(tag);
@@ -1036,10 +1036,10 @@ document.querySelectorAll('[data-insert]').forEach(button=>button.addEventListen
  if(action==='code'){insertWrappedElement('code','код');return}
  if(action==='spoiler'){insertWrappedElement('tg-spoiler','скрытый текст');return}
  if(action==='pre'){
-  const selectedText=selectedEditorText();insertEditorMarkup('<pre><code>'+(selectedText||'код')+'</code></pre><p><br></p>',!selectedText);return;
+  const selectedText=selectedEditorText();insertEditorMarkup('<pre><code>'+(selectedText||'код')+'</code></pre><p><br></p>');return;
  }
  if(action==='checkbox'){
-  const selectedText=selectedEditorText();insertEditorMarkup('<ul><li><input type="checkbox">'+(selectedText||'Пункт чек-листа')+'</li></ul><p><br></p>',!selectedText);return;
+  const selectedText=selectedEditorText();insertEditorMarkup('<ul><li><input type="checkbox">'+(selectedText||'Пункт чек-листа')+'</li></ul><p><br></p>');return;
  }
  if(action==='details'){
   let content='';
@@ -1094,8 +1094,7 @@ async function insertMediaFromFile(){
    if(file.type==='video')return '<p><video controls data-local-file="'+path+'" src="'+uri+'"></video></p>';
    return '<p><img data-local-file="'+path+'" src="'+uri+'" alt=""></p>';
   }).join('');
-  editor.focus();
-  document.execCommand('insertHTML',false,markup);
+  insertEditorMarkup(markup);
   status.textContent='Локальные медиа добавлены. Они поддерживаются в рич-сообщениях и альбомах.';
   updatePlainCompatibility();
   updateSeriesStatus();
@@ -1115,8 +1114,7 @@ function insertMediaFromUrl(){
  if(isVideoSite){
   if(isAlbumMode()){document.getElementById('status').textContent='Для альбома укажите прямой публичный URL файла изображения или видео, а не страницу видеохостинга.';return}
   const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
-  editor.focus();
-  document.execCommand('insertHTML',false,'<p><a href="'+safe+'" data-publication-media-preview="video">'+safe+'</a></p>');
+  insertEditorMarkup('<p><a href="'+safe+'" data-publication-media-preview="video">'+safe+'</a></p>');
   document.getElementById('status').textContent=isRichMode()
    ?'Это страница сайта видеохостинга, а не адрес видеофайла. Такой способ импорта годится для публикации в виде обычного сообщения, но не рич-сообщения. Для встраивания видео в рич-сообщение укажите прямой URL файла.'
    :'При публикации ссылка на видеосайт будет скрыта, а её URL передан Telegram для предпросмотра.';
@@ -1127,16 +1125,15 @@ function insertMediaFromUrl(){
  const videoByExtension=/\.(mp4|m4v|mov|webm|mkv)(?:$|[?#])/i.test(path);
  const imageByExtension=/\.(png|jpe?g|gif|webp|avif|bmp)(?:$|[?#])/i.test(path);
  const kind=videoByExtension?'video':imageByExtension?'image':(confirm('Это прямой URL видеофайла?\nНажмите «ОК» для видео или «Отмена» для изображения.')?'video':'image');
- editor.focus();
  const safe=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
  const markup=kind==='image'?'<p><img src="'+safe+'" alt=""></p>':'<p><video controls src="'+safe+'"></video></p>';
- document.execCommand('insertHTML',false,markup);
+ insertEditorMarkup(markup);
  updatePlainCompatibility();
  updateSeriesStatus();
 }
 document.getElementById('media').onclick=insertMediaFromUrl;
 document.getElementById('local-media').onclick=insertMediaFromFile;
-document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,Number(prompt('Количество строк','2'))||2));const cols=Math.max(1,Math.min(10,Number(prompt('Количество столбцов','2'))||2));let table='<table><tbody>';for(let r=0;r<rows;r++){table+='<tr>';for(let c=0;c<cols;c++)table+='<td><br></td>';table+='</tr>'}table+='</tbody></table><p><br></p>';editor.focus();document.execCommand('insertHTML',false,table)};
+document.getElementById('table').onclick=()=>{const rows=Math.max(1,Math.min(20,Number(prompt('Количество строк','2'))||2));const cols=Math.max(1,Math.min(10,Number(prompt('Количество столбцов','2'))||2));let table='<table><tbody>';for(let r=0;r<rows;r++){table+='<tr>';for(let c=0;c<cols;c++)table+='<td><br></td>';table+='</tr>'}table+='</tbody></table><p><br></p>';insertEditorMarkup(table)};
 const seriesStatus=document.getElementById('series-status');
 function isAlbumMode(){return modeSelect.value==='album'||modeSelect.value==='album_series'}
 function isSeriesMode(){return modeSelect.value.endsWith('_series')||(!isAlbumMode()&&seriesCheckbox.checked)}

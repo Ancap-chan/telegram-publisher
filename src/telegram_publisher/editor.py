@@ -33,10 +33,10 @@ body{margin:0;display:flex;flex-direction:column;height:100vh}
 header{padding:10px;background:#fff;border-bottom:1px solid #ddd;display:flex;flex-direction:column;gap:8px;align-items:stretch}.toolbar-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;width:100%}.heading-tool{padding:4px 7px;font-size:12px;min-width:34px}.plain-unsupported{outline:2px dashed #c87919!important;background-color:#fff3d8!important}.plain-unsupported::after{content:"";display:inline-block}
 button,select{font:inherit;padding:7px 10px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer}
 button:hover{background:#eee}
-main{flex:1;overflow:auto;padding:24px}
+main{flex:1;min-height:0;overflow:auto;padding:24px}
 #editor{max-width:1000px;min-height:calc(100vh - 190px);margin:0 auto;background:#fff;padding:32px;box-shadow:0 1px 5px #0001;outline:none;line-height:1.55;overflow-wrap:anywhere}
-#code-editor-wrap{display:none;position:relative;width:min(100%,1200px);min-height:calc(100vh - 190px);margin:0 auto;border:1px solid #ccd2da;border-radius:5px;background:#fff;overflow:hidden;box-shadow:0 1px 5px #0001}
-#code-highlight,#code-editor{position:absolute;inset:0;width:100%;height:100%;min-height:calc(100vh - 190px);margin:0;padding:24px;border:0;font:13px/1.65 Consolas,"Courier New",monospace;tab-size:2;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal}
+#code-editor-wrap{display:none;position:relative;width:min(100%,1000px);height:100%;min-height:0;margin:0 auto;background:#fff;overflow:hidden;box-shadow:0 1px 5px #0001}
+#code-highlight,#code-editor{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:32px;border:0;font:13px/1.65 Consolas,"Courier New",monospace;tab-size:2;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal}
 #code-highlight{pointer-events:none;overflow:hidden;color:#263445}
 #code-editor{z-index:1;resize:none;overflow:auto;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:#172b4d;outline:none}
 #code-editor::selection{background:#b8d4fa;color:transparent}
@@ -46,6 +46,7 @@ main{flex:1;overflow:auto;padding:24px}
 #code-highlight .html-value{color:#287a45}
 #code-highlight .html-comment{color:#7b8490;font-style:italic}
 #code-highlight .html-doctype{color:#9b4b32}
+body.code-mode main{overflow:hidden}
 body.code-mode #editor{display:none}
 body.code-mode #code-editor-wrap{display:block}
 body.code-mode #editor{display:none}
@@ -97,7 +98,7 @@ button:disabled{opacity:.55;cursor:default}
 </head>
 <body>
 <header>
-<div class="toolbar-row editor-mode-tools" role="group" aria-label="Режим редактирования"><button id="visual-mode" type="button" class="primary" aria-pressed="true">Визуально</button><button id="code-mode" type="button" aria-pressed="false">HTML-код</button></div>
+<div class="toolbar-row editor-mode-tools" role="group" aria-label="Режим редактирования"><button id="visual-mode" type="button" aria-pressed="true">Визуально</button><button id="code-mode" type="button" aria-pressed="false">HTML-код</button></div>
 <div class="toolbar-row file-tools"><button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button><button id="save-draft">Сохранить черновик…</button><button id="manual" style="margin-left:auto">Руководство</button></div>
 <div class="toolbar-row edit-tools"><button data-cmd="bold"><b>Жирный</b></button><button data-cmd="italic"><i>Курсив</i></button><button data-cmd="underline"><u>Подчёркнутый</u></button><button data-cmd="strikeThrough"><s>Зачёркнутый</s></button>
 <button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button class="heading-tool" data-cmd="formatBlock" data-value="h1" data-rich-only>H1</button><button class="heading-tool" data-cmd="formatBlock" data-value="h2" data-rich-only>H2</button><button class="heading-tool" data-cmd="formatBlock" data-value="h3" data-rich-only>H3</button><button class="heading-tool" data-cmd="formatBlock" data-value="h4" data-rich-only>H4</button><button class="heading-tool" data-cmd="formatBlock" data-value="h5" data-rich-only>H5</button><button class="heading-tool" data-cmd="formatBlock" data-value="h6" data-rich-only>H6</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
@@ -272,12 +273,12 @@ function commitCodeToVisual(){
  updateModeUI();
 }
 function refreshCodeEditor(){
- if(editorMode==='code')codeEditor.value=serializeEditorForCode();
+ if(editorMode==='code')setCodeValue(serializeEditorForCode());
 }
 function setEditorMode(nextMode){
  if(nextMode===editorMode)return;
  if(nextMode==='code'){
-  codeEditor.value=serializeEditorForCode();
+  setCodeValue(serializeEditorForCode());
   editorMode='code';
   document.body.classList.add('code-mode');
   visualModeButton.setAttribute('aria-pressed','false');

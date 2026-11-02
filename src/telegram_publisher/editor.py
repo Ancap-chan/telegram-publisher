@@ -35,6 +35,13 @@ button,select{font:inherit;padding:7px 10px;border:1px solid #ccc;border-radius:
 button:hover{background:#eee}
 main{flex:1;overflow:auto;padding:24px}
 #editor{max-width:1000px;min-height:calc(100vh - 190px);margin:0 auto;background:#fff;padding:32px;box-shadow:0 1px 5px #0001;outline:none;line-height:1.55;overflow-wrap:anywhere}
+#code-editor{display:block;width:min(100%,1200px);min-height:calc(100vh - 190px);margin:0 auto;padding:24px;border:1px solid #ccd2da;border-radius:5px;background:#1e2329;color:#e8edf2;font:13px/1.55 Consolas,"Courier New",monospace;tab-size:2;white-space:pre;overflow:auto;resize:vertical}
+#code-editor[hidden]{display:none}
+body.code-mode #editor{display:none}
+body.code-mode #code-editor{display:block}
+.editor-mode-tools{padding-bottom:2px;border-bottom:1px solid #e4e6e9}
+.editor-mode-tools button[aria-pressed="true"]{background:#245eb5;color:#fff;border-color:#245eb5}
+body.code-mode .edit-tools{display:none}
 #editor img,#editor video{max-width:100%;height:auto}
 #editor table{border-collapse:collapse;width:100%}
 #editor td,#editor th{border:1px solid #888;padding:6px}
@@ -79,12 +86,13 @@ button:disabled{opacity:.55;cursor:default}
 </head>
 <body>
 <header>
+<div class="toolbar-row editor-mode-tools" role="group" aria-label="Режим редактирования"><button id="visual-mode" type="button" class="primary" aria-pressed="true">Визуально</button><button id="code-mode" type="button" aria-pressed="false">HTML-код</button></div>
 <div class="toolbar-row file-tools"><button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button><button id="save-draft">Сохранить черновик…</button><button id="manual" style="margin-left:auto">Руководство</button></div>
 <div class="toolbar-row edit-tools"><button data-cmd="bold"><b>Жирный</b></button><button data-cmd="italic"><i>Курсив</i></button><button data-cmd="underline"><u>Подчёркнутый</u></button><button data-cmd="strikeThrough"><s>Зачёркнутый</s></button>
 <button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button class="heading-tool" data-cmd="formatBlock" data-value="h1" data-rich-only>H1</button><button class="heading-tool" data-cmd="formatBlock" data-value="h2" data-rich-only>H2</button><button class="heading-tool" data-cmd="formatBlock" data-value="h3" data-rich-only>H3</button><button class="heading-tool" data-cmd="formatBlock" data-value="h4" data-rich-only>H4</button><button class="heading-tool" data-cmd="formatBlock" data-value="h5" data-rich-only>H5</button><button class="heading-tool" data-cmd="formatBlock" data-value="h6" data-rich-only>H6</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
 <button id="link">Ссылка</button><button id="media">Медиа по URL</button><button id="local-media" hidden>Медиа из файла</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span></div>
 </header>
-<div id="series-status" class="series-status" aria-live="polite" hidden></div><main><div id="editor" contenteditable="true" spellcheck="true"></div></main>
+<div id="series-status" class="series-status" aria-live="polite" hidden></div><main><div id="editor" contenteditable="true" spellcheck="true"></div><textarea id="code-editor" aria-label="HTML-код публикации" spellcheck="false" autocomplete="off" autocapitalize="off" hidden></textarea></main>
 <div id="context-menu" class="context-menu" hidden>
 <button data-edit="cut">Вырезать</button>
 <button data-edit="copy">Копировать</button>
@@ -155,10 +163,65 @@ let lastModeValue=modeSelect.value;
 const seriesCheckbox=document.getElementById('series');
 let savedRange=null;
 let selectedBreak=null;
+let editorMode='visual';
+const codeEditor=document.getElementById('code-editor');
+const visualModeButton=document.getElementById('visual-mode');
+const codeModeButton=document.getElementById('code-mode');
+const SERIES_BREAK_COMMENT='telegram-publisher:series-break';
+function serializeEditorForCode(){
+ const wrapper=document.createElement('div');
+ for(const node of Array.from(editor.childNodes)){
+  if(node.nodeType===Node.ELEMENT_NODE&&node.classList.contains('series-break')){
+   wrapper.appendChild(document.createComment(SERIES_BREAK_COMMENT));
+  }else{
+   wrapper.appendChild(node.cloneNode(true));
+  }
+ }
+ return wrapper.innerHTML;
+}
+function commitCodeToVisual(){
+ if(editorMode!=='code')return;
+ const template=document.createElement('template');
+ template.innerHTML=codeEditor.value;
+ const walker=document.createTreeWalker(template.content,NodeFilter.SHOW_COMMENT);
+ const markers=[];
+ while(walker.nextNode()){
+  if(walker.currentNode.nodeValue.trim()===SERIES_BREAK_COMMENT)markers.push(walker.currentNode);
+ }
+ for(const marker of markers)marker.replaceWith(makeBreak());
+ editor.replaceChildren(template.content.cloneNode(true));
+ selectedBreak=null;
+ updateModeUI();
+}
+function refreshCodeEditor(){
+ if(editorMode==='code')codeEditor.value=serializeEditorForCode();
+}
+function setEditorMode(nextMode){
+ if(nextMode===editorMode)return;
+ if(nextMode==='code'){
+  codeEditor.value=serializeEditorForCode();
+  editorMode='code';
+  document.body.classList.add('code-mode');
+  visualModeButton.setAttribute('aria-pressed','false');
+  codeModeButton.setAttribute('aria-pressed','true');
+  codeEditor.focus();
+  return;
+ }
+ commitCodeToVisual();
+ editorMode='visual';
+ document.body.classList.remove('code-mode');
+ visualModeButton.setAttribute('aria-pressed','true');
+ codeModeButton.setAttribute('aria-pressed','false');
+ editor.focus();
+ rememberEditorSelection();
+}
+visualModeButton.addEventListener('click',()=>setEditorMode('visual'));
+codeModeButton.addEventListener('click',()=>setEditorMode('code'));
 let config={profiles:[],selected_profile_id:null,mode:'rich',series:false,status:''};
 function applyConfig(value){
  config=value||config;
  editor.innerHTML=window.initialContent||'';
+ refreshCodeEditor();
  channelSelect.replaceChildren();
  for(const profile of (config.profiles||[])){
   const option=document.createElement('option');
@@ -436,6 +499,7 @@ async function setImportedContent(promise){
   if(!String(html).trim())throw new Error('В источнике не найден текст.');
   editor.innerHTML=html;
   if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
+  refreshCodeEditor();
   updateModeUI();
   status.textContent='Импорт завершён. Проверьте содержимое и при необходимости отредактируйте его.';
   editor.focus();
@@ -466,6 +530,7 @@ document.getElementById('import-file').onclick=async()=>{
  }
 };
 function currentDraft(){
+ commitCodeToVisual();
  return {
   format:'telegram-publisher-draft',
   version:1,
@@ -495,6 +560,7 @@ function applyDraft(draft){
   throw new Error('Файл не является поддерживаемым черновиком Telegram Publisher.');
  }
  editor.innerHTML=draft.html;
+ refreshCodeEditor();
  modeSelect.value=draft.mode;
  seriesCheckbox.checked=draft.series;
  channelSelect.value=draft.profile_id||'';
@@ -866,6 +932,7 @@ function insertBreakAtSelection(){
 document.getElementById('insert-break').addEventListener('click',insertBreakAtSelection);
 editor.addEventListener('input',()=>{updatePlainCompatibility();updateSeriesStatus()});
 modeSelect.addEventListener('change',()=>{
+ commitCodeToVisual();
  if(editor.querySelector('[data-local-file]')&&!['rich','rich_series','album','album_series'].includes(modeSelect.value)){
   alert('Локальные медиа поддерживаются только в рич-сообщениях и альбомах. Чтобы использовать обычный формат, замените локальные файлы публичными URL или выберите совместимый способ публикации.');
   modeSelect.value=lastModeValue;
@@ -879,6 +946,7 @@ modeSelect.addEventListener('change',()=>{
  updateModeUI();
 });
 seriesCheckbox.addEventListener('change',()=>{
+ commitCodeToVisual();
  if(isAlbumMode()){seriesCheckbox.checked=false;updateModeUI();return}
  if(seriesCheckbox.checked&&modeSelect.value==='plain')modeSelect.value='plain_series';
  if(seriesCheckbox.checked&&modeSelect.value==='rich')modeSelect.value='rich_series';
@@ -888,6 +956,7 @@ seriesCheckbox.addEventListener('change',()=>{
  updateModeUI();
 });
 function currentResult(action){
+ commitCodeToVisual();
  const series=isSeriesMode();
  const cleanEditor=document.createElement('div');
  for(const node of Array.from(editor.childNodes)){
@@ -897,6 +966,7 @@ function currentResult(action){
  return {action,html:cleanEditor.innerHTML,parts:series?htmlParts():[],profile_id:channelSelect.value||null,mode:modeSelect.value,series};
 }
 document.getElementById('publish').onclick=async()=>{
+ commitCodeToVisual();
  if(!channelSelect.value){
   document.getElementById('status').textContent='Выберите канал (кнопка "Настроить каналы")';
   return;

@@ -32,8 +32,8 @@ RICH_HTML_TAGS = {
 }
 DROP_TAGS = {
     "script", "style", "noscript", "iframe", "svg", "canvas", "form",
-    "button", "input", "select", "textarea", "nav", "footer", "header",
-    "dialog", "header", "template",
+    "button", "input", "select", "textarea", "nav", "header",
+    "dialog", "template",
 }
 BOOLEAN_ATTRIBUTES = {
     "table": {"bordered", "striped", "compact"},

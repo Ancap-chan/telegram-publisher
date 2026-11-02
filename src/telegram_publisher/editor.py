@@ -224,7 +224,7 @@ function formatHtmlForDisplay(markup){
  const appendText=value=>{
   if(!value)return;
   const chunks=value.split(/(\s+)/);
-  for(const chunk of chunks){
+  for(let chunk of chunks){
    if(!chunk)continue;
    if(lineStart&&chunk.trim())lineStart=false;
    if(lineStart&&chunk.includes('\n'))chunk=chunk.replace(/\n[ \t]*/g,'\n');

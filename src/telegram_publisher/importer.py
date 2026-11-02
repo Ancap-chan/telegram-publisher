@@ -18,14 +18,14 @@ from urllib.request import Request, urlopen
 import markdown
 from bs4 import BeautifulSoup, Tag
 from bs4.formatter import HTMLFormatter
-
+from charset_normalizer import from_bytes
 
 class PreserveAttributeOrderFormatter(HTMLFormatter):
     """Сохранять порядок атрибутов, заданный при очистке HTML."""
 
     def attributes(self, tag: Tag):
         return tag.attrs.items()
-from charset_normalizer import from_bytes
+
 
 
 MAX_DOWNLOAD_BYTES = 12 * 1024 * 1024

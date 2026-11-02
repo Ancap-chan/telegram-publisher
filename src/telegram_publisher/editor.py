@@ -211,12 +211,12 @@ function formatHtmlForDisplay(markup){
  template.innerHTML=String(markup||'');
  removeFormattingWhitespace(template.content);
  const source=template.innerHTML;
- const tokens=source.match(/<!--[\\s\\S]*?-->|<![^>]*>|<\\/?[A-Za-z][^>]*>/g)||[];
+ const tokens=source.match(/<!--[\s\S]*?-->|<![^>]*>|<\/?[A-Za-z][^>]*>/g)||[];
  if(!tokens.length)return source.trim();
  let output='',position=0,depth=0,lineStart=true;
  const appendText=value=>{
   if(!value)return;
-  const chunks=value.split(/(\\s+)/);
+  const chunks=value.split(/(\s+)/);
   for(const chunk of chunks){
    if(!chunk)continue;
    if(lineStart&&chunk.trim()){output+='  '.repeat(Math.max(0,depth));lineStart=false;}
@@ -228,15 +228,15 @@ function formatHtmlForDisplay(markup){
   const index=source.indexOf(token,position);
   if(index<0)continue;
   appendText(source.slice(position,index));
-  const closing=/^<\\//.test(token);
-  const name=(token.match(/^<\\/?\\s*([\\w:-]+)/)||[])[1]?.toLowerCase()||'';
+  const closing=/^<\//.test(token);
+  const name=(token.match(/^<\/?\s*([\w:-]+)/)||[])[1]?.toLowerCase()||'';
   const isBlock=CODE_BLOCK_TAGS.has(name);
   if(closing&&isBlock){if(!lineStart)output+='\n';depth=Math.max(0,depth-1);}
   if(isBlock&&lineStart)output+='  '.repeat(Math.max(0,depth));
   else if(isBlock&&!lineStart)output+='\n'+'  '.repeat(Math.max(0,depth));
   output+=token;
   lineStart=false;
-  const selfClosing=/\\/>$/.test(token)||['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'].includes(name);
+  const selfClosing=/\/>$/.test(token)||['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'].includes(name);
   if(!closing&&isBlock&&!selfClosing)depth++;
   if(isBlock){output+='\n';lineStart=true;}
   position=index+token.length;

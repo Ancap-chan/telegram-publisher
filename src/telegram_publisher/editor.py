@@ -183,7 +183,9 @@ const mainElement=document.querySelector('main');
 function resizeCodeEditor(){
  codeEditor.style.height='auto';
  codeHighlight.style.height='auto';
- const contentHeight=Math.max(240,mainElement.clientHeight-48,codeEditor.scrollHeight);
+ const initialHeight=Math.max(240,mainElement.clientHeight-48);
+ editor.style.minHeight=initialHeight+'px';
+ const contentHeight=Math.max(initialHeight,codeEditor.scrollHeight);
  codeEditor.style.height=contentHeight+'px';
  codeHighlight.style.height=contentHeight+'px';
  codeEditorWrap.style.height=contentHeight+'px';
@@ -236,7 +238,7 @@ function formatHtmlForDisplay(markup){
   const closing=/^<\//.test(token);
   const name=(token.match(/^<\/?\s*([\w:-]+)/)||[])[1]?.toLowerCase()||'';
   const isBlock=CODE_BLOCK_TAGS.has(name);
-  if(closing&&isBlock){if(!lineStart)output+='\n';depth=Math.max(0,depth-1);}
+  if(closing&&isBlock){depth=Math.max(0,depth-1);}
   if(isBlock&&lineStart)output+='  '.repeat(Math.max(0,depth));
   else if(isBlock&&!lineStart)output+='\n'+'  '.repeat(Math.max(0,depth));
   output+=token;

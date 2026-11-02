@@ -984,8 +984,14 @@ document.querySelectorAll('[data-insert]').forEach(button=>button.addEventListen
  if(action==='details'){
   restoreEditorSelection();
   const selection=window.getSelection();
-  const selectedText=selection&&!selection.isCollapsed?selection.toString():'';
-  const content=escapeInsertedText(selectedText||'Содержимое раскрывающегося блока');
+  let content='';
+  if(selection&&!selection.isCollapsed){
+   const holder=document.createElement('div');
+   holder.append(selection.getRangeAt(0).cloneContents());
+   content=holder.innerHTML;
+  }else{
+   content='Содержимое раскрывающегося блока';
+  }
   insertEditorMarkup('<details><summary>Подробнее</summary><div>'+content+'</div></details><p><br></p>');
   return;
  }

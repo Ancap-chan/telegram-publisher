@@ -28,7 +28,7 @@ RICH_HTML_TAGS = {
     "ins", "li", "mark", "ol", "p", "pre", "s", "strong", "sub",
     "summary", "sup", "table", "tbody", "td", "th", "thead", "tr", "tg-button",
     "tg-button-row", "tg-collage", "tg-emoji", "tg-math-block", "tg-reference",
-    "tg-slideshow", "tg-spoiler", "tg-time", "tg-map", "u", "ul", "video", "audio",
+    "tg-slideshow", "tg-spoiler", "tg-time", "tg-map", "u", "ul", "video",
 }
 DROP_TAGS = {
     "script", "style", "noscript", "iframe", "svg", "canvas", "form",
@@ -114,7 +114,7 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
         node.decompose()
 
     # Переносим URL из вложенного source в родительский медиаэлемент до очистки тегов.
-    for media in soup.find_all(["video", "audio"]):
+    for media in soup.find_all(["video"]):
         if not media.get("src"):
             source = media.find("source")
             source_url = _attribute_text(source.get("src")) if source else ""

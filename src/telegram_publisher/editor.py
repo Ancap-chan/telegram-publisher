@@ -238,7 +238,7 @@ function cleanClipboardHtml(markup){
   video.querySelectorAll('source').forEach(source=>source.remove());
  }
  parsed.querySelectorAll('script,style,base,meta,link,iframe,object,embed,svg,canvas,form,button,input,select,textarea').forEach(node=>node.remove());
- const allowed=new Set(['a','aside','b','blockquote','br','caption','cite','code','del','details','em','figcaption','footer','h1','h2','h3','h4','h5','h6','hr','i','img','ins','li','mark','ol','p','pre','s','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','tg-map','u','ul','video','audio']);
+ const allowed=new Set(['a','aside','b','blockquote','br','caption','cite','code','del','details','em','figcaption','footer','h1','h2','h3','h4','h5','h6','hr','i','img','ins','li','mark','ol','p','pre','s','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','tg-map','u','ul','video']);
  const attributes={
   a:['href','name'],code:['class'],img:['src','alt'],video:['src'],audio:['src'],
   table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'],
@@ -279,7 +279,7 @@ function cleanClipboardHtml(markup){
   if(node.hasAttribute('valign')&&!['top','middle','bottom'].includes(node.getAttribute('valign')))node.removeAttribute('valign');
   if(node.hasAttribute('format')&&!['t','T','d','D','w','W','r','R','wDT'].includes(node.getAttribute('format')))node.removeAttribute('format');
   if(tag==='code'&&node.hasAttribute('class')&&!/^language-[a-zA-Z0-9_+.-]+$/.test(node.getAttribute('class')))node.removeAttribute('class');
-  if((tag==='img'||tag==='video'||tag==='audio')&&!node.hasAttribute('src'))node.remove();
+  if((tag==='img'||tag==='video')&&!node.hasAttribute('src'))node.remove();
  }
  return {html:parsed.body.innerHTML,removedImages};
 }

@@ -196,9 +196,14 @@ function removeFormattingWhitespace(root){
  const preservedTags=new Set(['code','pre','script','style','textarea']);
  const clean=parent=>{
   for(const node of Array.from(parent.childNodes)){
-   if(node.nodeType===Node.TEXT_NODE&&/\n/.test(node.nodeValue)&&!node.nodeValue.trim()){
+   if(node.nodeType===Node.TEXT_NODE&&/\n/.test(node.nodeValue)){
+    const first=!node.previousSibling,last=!node.nextSibling;
     const adjacentBlock=[node.previousSibling,node.nextSibling].some(sibling=>sibling&&sibling.nodeType===Node.ELEMENT_NODE&&CODE_BLOCK_TAGS.has(sibling.localName));
-    if(adjacentBlock||!node.previousSibling||!node.nextSibling)node.remove();
+    let value=node.nodeValue;
+    if(first)value=value.replace(/^\s*\n[ \t]*/,'');
+    if(last)value=value.replace(/[ \t]*\n\s*$/,'');
+    if((adjacentBlock||first||last)&&!value.trim())node.remove();
+    else node.nodeValue=value;
    }else if(node.nodeType===Node.ELEMENT_NODE&&!preservedTags.has(node.localName)){
     clean(node);
    }

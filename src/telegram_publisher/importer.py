@@ -36,10 +36,15 @@ DROP_TAGS = {
     "dialog", "template",
 }
 BOOLEAN_ATTRIBUTES = {
-    "table": {"bordered", "striped", "compact"},
-    "blockquote": {"expandable"},
-    "details": {"open"},
-    "tg-button": {"request-write-access", "allow-user-chats", "allow-group-chats", "allow-channel-chats"},
+    "table": ("bordered", "striped", "compact"),
+    "blockquote": ("expandable",),
+    "details": ("open",),
+    "tg-button": (
+        "request-write-access",
+        "allow-user-chats",
+        "allow-group-chats",
+        "allow-channel-chats",
+    ),
 }
 
 

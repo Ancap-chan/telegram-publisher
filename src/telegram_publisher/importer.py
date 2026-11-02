@@ -23,7 +23,7 @@ from charset_normalizer import from_bytes
 MAX_DOWNLOAD_BYTES = 12 * 1024 * 1024
 USER_AGENT = "TelegramPublisher/0.1 (+local post importer)"
 RICH_HTML_TAGS = {
-    "a", "b", "blockquote", "br", "caption", "cite", "code", "del", "details",
+    "a", "a", "aside", "b", "blockquote", "br", "caption", "cite", "code", "del", "details",
     "em", "figcaption", "footer", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img",
     "ins", "li", "mark", "ol", "p", "pre", "s", "strong", "sub",
     "summary", "sup", "table", "tbody", "td", "th", "thead", "tr", "tg-button",
@@ -186,8 +186,10 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
                         value = urljoin(base_url, value)
                     if not re.match(r"^(https?://|mailto:|tel:|tg://|#)", value, re.I):
                         continue
-            elif attr in {"colspan", "rowspan", "unix", "emoji-id"}:
-                if not value.isdigit() or int(value) < (0 if attr == "unix" else 1):
+            elif attr in {"colspan", "rowspan", "unix", "emoji-id", "lat", "long", "zoom"}:
+                if not re.fullmatch(r"-?\\d+(?:\\.\\d+)?" if attr in {"lat", "long"} else r"\\d+", value):
+                    continue
+                if attr not in {"lat", "long", "unix"} and int(value) < 1:
                     continue
             elif attr == "align":
                 if value not in {"left", "center", "right"}:

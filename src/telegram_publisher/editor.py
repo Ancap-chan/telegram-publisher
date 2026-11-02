@@ -237,7 +237,41 @@ function cleanClipboardHtml(markup){
   video.setAttribute('src',url);
   video.querySelectorAll('source').forEach(source=>source.remove());
  }
- parsed.querySelectorAll('script,style,base,meta,link').forEach(node=>node.remove());
+ parsed.querySelectorAll('script,style,base,meta,link,iframe,object,embed,svg,canvas,form,button,input,select,textarea').forEach(node=>node.remove());
+ const allowed=new Set(['a','b','blockquote','br','caption','cite','code','del','details','em','figcaption','h1','h2','h3','h4','h5','h6','hr','i','img','ins','li','mark','ol','p','pre','s','small','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','u','ul','video','audio']);
+ const attributes={
+  a:['href','name'],code:['class'],img:['src','alt'],video:['src'],audio:['src'],
+  table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'],
+  td:['colspan','rowspan','align','valign'],th:['colspan','rowspan','align','valign'],
+  'tg-emoji':['emoji-id'],'tg-time':['unix','format'],'tg-reference':['name'],
+  'tg-button':['type','style','url','data','text','query','forward-text','request-write-access','allow-user-chats','allow-group-chats','allow-channel-chats'],
+  'tg-button-row':['align']
+ };
+ const booleanAttributes={table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'], 'tg-button':['request-write-access','allow-user-chats','allow-group-chats','allow-channel-chats']};
+ for(const node of Array.from(parsed.body.querySelectorAll('*')).reverse()){
+  if(node.tagName.toLowerCase()==='span'){
+   if(node.classList.contains('tg-spoiler')){const replacement=parsed.createElement('tg-spoiler');replacement.innerHTML=node.innerHTML;node.replaceWith(replacement)}
+   else node.replaceWith(...node.childNodes);
+   continue;
+  }
+  const tag=node.tagName.toLowerCase();
+  if(!allowed.has(tag)){node.replaceWith(...node.childNodes);continue}
+  const keep=new Set(attributes[tag]||[]);
+  for(const attribute of Array.from(node.attributes)){
+   if(!keep.has(attribute.name))node.removeAttribute(attribute.name);
+  }
+  for(const attribute of booleanAttributes[tag]||[]){
+   if(node.hasAttribute(attribute))node.setAttribute(attribute,'');
+  }
+  for(const attribute of ['href','src','url']){
+   if(!node.hasAttribute(attribute))continue;
+   const value=node.getAttribute(attribute)||'';
+   if(/^(javascript:|data:|file:|vbscript:)/i.test(value)){node.removeAttribute(attribute);continue}
+   if(attribute==='src'&&!/^https?:\/\//i.test(value))node.removeAttribute(attribute);
+   if(attribute!=='src'&&!/^(https?:\/\/|mailto:|tel:|tg:\/\/|#)/i.test(value))node.removeAttribute(attribute);
+  }
+  if((tag==='img'||tag==='video'||tag==='audio')&&!node.hasAttribute('src'))node.remove();
+ }
  return {html:parsed.body.innerHTML,removedImages};
 }
 function insertClipboardHtml(markup){

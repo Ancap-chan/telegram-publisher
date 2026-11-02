@@ -460,17 +460,20 @@ function cleanClipboardHtml(markup){
   video.setAttribute('src',url);
   video.querySelectorAll('source').forEach(source=>source.remove());
  }
- parsed.querySelectorAll('script,style,base,meta,link,iframe,object,embed,svg,canvas,form,button,input,select,textarea').forEach(node=>node.remove());
- const allowed=new Set(['a','aside','b','blockquote','br','caption','cite','code','del','details','em','figcaption','footer','h1','h2','h3','h4','h5','h6','hr','i','img','ins','li','mark','ol','p','pre','s','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','tg-map','u','ul','video']);
+ parsed.querySelectorAll('script,style,base,meta,link,iframe,object,embed,svg,canvas,form,button,select,textarea').forEach(node=>node.remove());
+ parsed.querySelectorAll('input').forEach(node=>{
+  if(node.getAttribute('type')!=='checkbox'||!node.closest('li'))node.remove();
+ });
+ const allowed=new Set(['a','aside','b','blockquote','br','caption','cite','code','del','details','em','figcaption','footer','h1','h2','h3','h4','h5','h6','hr','i','img','input','ins','li','mark','ol','p','pre','s','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','tg-map','u','ul','video']);
  const attributes={
-  a:['href','name'],code:['class'],img:['src','alt'],video:['src'],audio:['src'],
+  a:['href','name'],code:['class'],img:['src','alt'],input:['type','checked'],video:['src'],audio:['src'],
   table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'],
   td:['colspan','rowspan','align','valign'],th:['colspan','rowspan','align','valign'],
   'tg-emoji':['emoji-id'],'tg-time':['unix','format'],'tg-reference':['name'],
   'tg-button':['type','style','url','data','text','query','forward-text','request-write-access','allow-user-chats','allow-group-chats','allow-channel-chats'],
   'tg-button-row':['align'],'tg-map':['lat','long','zoom']
  };
- const booleanAttributes={table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'], 'tg-button':['request-write-access','allow-user-chats','allow-group-chats','allow-channel-chats']};
+ const booleanAttributes={table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'],input:['checked'], 'tg-button':['request-write-access','allow-user-chats','allow-group-chats','allow-channel-chats']};
  for(const node of Array.from(parsed.body.querySelectorAll('*')).reverse()){
   if(node.tagName.toLowerCase()==='span'){
    if(node.classList.contains('tg-spoiler')){const replacement=parsed.createElement('tg-spoiler');replacement.innerHTML=node.innerHTML;node.replaceWith(replacement)}
@@ -493,6 +496,7 @@ function cleanClipboardHtml(markup){
    if(attribute==='src'&&!/^https?:\/\//i.test(value))node.removeAttribute(attribute);
    if(attribute!=='src'&&!/^(https?:\/\/|mailto:|tel:|tg:\/\/|#)/i.test(value))node.removeAttribute(attribute);
   }
+  if(tag==='input'&&node.getAttribute('type')!=='checkbox')node.remove();
   for(const attribute of ['colspan','rowspan','unix','emoji-id','lat','long','zoom']){
    if(!node.hasAttribute(attribute))continue;
    const value=node.getAttribute(attribute)||'';
@@ -777,7 +781,13 @@ document.querySelectorAll('[data-insert]').forEach(button=>button.addEventListen
   insertEditorMarkup('<pre><code>'+escapeInsertedText(selectedText||'код')+'</code></pre><p><br></p>');
   return;
  }
- if(action==='checkbox'){insertEditorMarkup('☐ ');return}
+ if(action==='checkbox'){
+  restoreEditorSelection();
+  const selection=window.getSelection();
+  const selectedText=selection&&!selection.isCollapsed?selection.toString():'';
+  insertEditorMarkup('<ul><li><input type="checkbox">'+escapeInsertedText(selectedText||'Пункт чек-листа')+'</li></ul><p><br></p>');
+  return;
+ }
  if(action==='details'){
   insertEditorMarkup('<details><summary>Подробнее</summary><p>Содержимое раскрывающегося блока</p></details><p><br></p>');
   return;
@@ -947,7 +957,7 @@ const PLAIN_SUBSTITUTIONS=[
  {selector:'h1,h2,h3,h4,h5,h6',message:'Уровень заголовка будет заменён жирным текстом.'},
  {selector:'table',message:'Таблица будет преобразована в текстовые строки.'},
  {selector:'img,video',message:'Медиа будет заменено скрытой ссылкой для предпросмотра.'},
- {selector:'mark,sub,sup,small,big,font,span[style],tg-spoiler,tg-math-block,details,hr',message:'Этот элемент не поддерживается в обычном режиме; текстовое содержимое сохранится.'}
+ {selector:'mark,sub,sup,small,big,font,span[style],tg-spoiler,tg-math-block,details,hr,li input[type="checkbox"]',message:'Этот элемент не поддерживается в обычном режиме; текстовое содержимое сохранится.'}
 ];
 function updatePlainCompatibility(){
  editor.querySelectorAll('.plain-unsupported').forEach(node=>{

@@ -35,7 +35,19 @@ button,select{font:inherit;padding:7px 10px;border:1px solid #ccc;border-radius:
 button:hover{background:#eee}
 main{flex:1;overflow:auto;padding:24px}
 #editor{max-width:1000px;min-height:calc(100vh - 190px);margin:0 auto;background:#fff;padding:32px;box-shadow:0 1px 5px #0001;outline:none;line-height:1.55;overflow-wrap:anywhere}
-#code-editor{display:none;width:min(100%,1200px);min-height:calc(100vh - 190px);margin:0 auto;padding:24px;border:1px solid #ccd2da;border-radius:5px;background:#1e2329;color:#e8edf2;font:13px/1.55 Consolas,"Courier New",monospace;tab-size:2;white-space:pre;overflow:auto;resize:vertical}
+#code-editor-wrap{display:none;position:relative;width:min(100%,1200px);min-height:calc(100vh - 190px);margin:0 auto;border:1px solid #ccd2da;border-radius:5px;background:#fff;overflow:hidden;box-shadow:0 1px 5px #0001}
+#code-highlight,#code-editor{position:absolute;inset:0;width:100%;height:100%;min-height:calc(100vh - 190px);margin:0;padding:24px;border:0;font:13px/1.65 Consolas,"Courier New",monospace;tab-size:2;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal}
+#code-highlight{pointer-events:none;overflow:hidden;color:#263445}
+#code-editor{z-index:1;resize:none;overflow:auto;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:#172b4d;outline:none}
+#code-editor::selection{background:#b8d4fa;color:transparent}
+#code-highlight .html-tag{color:#1769aa}
+#code-highlight .html-tag-name{color:#8b3fb0;font-weight:600}
+#code-highlight .html-attr{color:#a05a00}
+#code-highlight .html-value{color:#287a45}
+#code-highlight .html-comment{color:#7b8490;font-style:italic}
+#code-highlight .html-doctype{color:#9b4b32}
+body.code-mode #editor{display:none}
+body.code-mode #code-editor-wrap{display:block}
 body.code-mode #editor{display:none}
 body.code-mode #code-editor{display:block}
 .editor-mode-tools{padding-bottom:2px;border-bottom:1px solid #e4e6e9}
@@ -91,7 +103,7 @@ button:disabled{opacity:.55;cursor:default}
 <button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button class="heading-tool" data-cmd="formatBlock" data-value="h1" data-rich-only>H1</button><button class="heading-tool" data-cmd="formatBlock" data-value="h2" data-rich-only>H2</button><button class="heading-tool" data-cmd="formatBlock" data-value="h3" data-rich-only>H3</button><button class="heading-tool" data-cmd="formatBlock" data-value="h4" data-rich-only>H4</button><button class="heading-tool" data-cmd="formatBlock" data-value="h5" data-rich-only>H5</button><button class="heading-tool" data-cmd="formatBlock" data-value="h6" data-rich-only>H6</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
 <button id="link">Ссылка</button><button id="media">Медиа по URL</button><button id="local-media" hidden>Медиа из файла</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span></div>
 </header>
-<div id="series-status" class="series-status" aria-live="polite" hidden></div><main><div id="editor" contenteditable="true" spellcheck="true"></div><textarea id="code-editor" aria-label="HTML-код публикации" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea></main>
+<div id="series-status" class="series-status" aria-live="polite" hidden></div><main><div id="editor" contenteditable="true" spellcheck="true"></div><div id="code-editor-wrap"><pre id="code-highlight" aria-hidden="true"></pre><textarea id="code-editor" aria-label="HTML-код публикации" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="soft"></textarea></div></main>
 <div id="context-menu" class="context-menu" hidden>
 <button data-edit="cut">Вырезать</button>
 <button data-edit="copy">Копировать</button>
@@ -164,6 +176,75 @@ let savedRange=null;
 let selectedBreak=null;
 let editorMode='visual';
 const codeEditor=document.getElementById('code-editor');
+const codeHighlight=document.getElementById('code-highlight');
+function escapeCodeHtml(value){
+ return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function formatHtmlForDisplay(markup){
+ const tokens=String(markup||'').match(/<!--[\\s\\S]*?-->|<![^>]*>|<\\/?[A-Za-z][^>]*>/g)||[];
+ if(!tokens.length)return String(markup||'').trim();
+ const blockTags=new Set(['address','article','aside','blockquote','body','caption','dd','details','div','dl','dt','fieldset','figcaption','figure','footer','form','h1','h2','h3','h4','h5','h6','head','header','hr','html','li','main','nav','ol','p','pre','section','summary','table','tbody','td','tfoot','th','thead','tr','ul']);
+ let output='',position=0,depth=0,lineStart=true;
+ const appendText=value=>{
+  if(!value)return;
+  const chunks=value.split(/(\\s+)/);
+  for(const chunk of chunks){
+   if(!chunk)continue;
+   if(lineStart&&chunk.trim()){output+='  '.repeat(Math.max(0,depth));lineStart=false;}
+   output+=chunk;
+   if(chunk.includes('\\n'))lineStart=output.endsWith('\\n');
+  }
+ };
+ for(const token of tokens){
+  const index=markup.indexOf(token,position);
+  if(index<0)continue;
+  appendText(markup.slice(position,index));
+  const closing=/^<\\//.test(token);
+  const name=(token.match(/^<\\/?\\s*([\\w:-]+)/)||[])[1]?.toLowerCase()||'';
+  const isBlock=blockTags.has(name);
+  if(closing&&isBlock){if(!lineStart)output+='\\n';depth=Math.max(0,depth-1);}
+  if(isBlock&&lineStart)output+='  '.repeat(Math.max(0,depth));
+  else if(isBlock&&!lineStart)output+='\\n'+'  '.repeat(Math.max(0,depth));
+  output+=token;
+  lineStart=false;
+  const selfClosing=/\\/>$/.test(token)||['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'].includes(name);
+  if(!closing&&isBlock&&!selfClosing)depth++;
+  if(isBlock){output+='\\n';lineStart=true;}
+  position=index+token.length;
+ }
+ appendText(markup.slice(position));
+ return output.trim();
+}
+function highlightHtmlCode(){
+ const source=codeEditor.value;
+ const pattern=/<!--[\\s\\S]*?-->|<![^>]*>|<\\/?[A-Za-z][^>]*>/g;
+ let output='',position=0,match;
+ while((match=pattern.exec(source))){
+  output+=escapeCodeHtml(source.slice(position,match.index));
+  const token=match[0];
+  if(token.startsWith('<!--'))output+='<span class="html-comment">'+escapeCodeHtml(token)+'</span>';
+  else if(token.startsWith('<!'))output+='<span class="html-doctype">'+escapeCodeHtml(token)+'</span>';
+  else{
+   const tagMatch=token.match(/^(<\\/?)([\\w:-]+)/);
+   if(!tagMatch){output+=escapeCodeHtml(token);}
+   else{
+    const prefix=tagMatch[1],name=tagMatch[2];
+    const rest=token.slice(tagMatch[0].length,-1);
+    output+='<span class="html-tag">'+escapeCodeHtml(prefix)+'<span class="html-tag-name">'+escapeCodeHtml(name)+'</span>';
+    const attrs=rest.replace(/([\\w:-]+)(\\s*=\\s*)("[^"]*"|'[^']*'|[^\\s>]+)/g,(all,key,equal,value)=>'<span class="html-attr">'+escapeCodeHtml(key)+'</span>'+escapeCodeHtml(equal)+'<span class="html-value">'+escapeCodeHtml(value)+'</span>');
+    output+=attrs+escapeCodeHtml('>');
+    output+='</span>';
+   }
+  }
+  position=pattern.lastIndex;
+ }
+ output+=escapeCodeHtml(source.slice(position));
+ codeHighlight.innerHTML=output+'\\n';
+}
+function setCodeValue(markup,format=true){
+ codeEditor.value=format?formatHtmlForDisplay(markup):String(markup||'');
+ highlightHtmlCode();
+}
 const visualModeButton=document.getElementById('visual-mode');
 const codeModeButton=document.getElementById('code-mode');
 const SERIES_BREAK_COMMENT='telegram-publisher:series-break';
@@ -214,6 +295,11 @@ function setEditorMode(nextMode){
  editor.focus();
  rememberEditorSelection();
 }
+codeEditor.addEventListener('input',highlightHtmlCode);
+codeEditor.addEventListener('scroll',()=>{
+ codeHighlight.scrollTop=codeEditor.scrollTop;
+ codeHighlight.scrollLeft=codeEditor.scrollLeft;
+});
 visualModeButton.addEventListener('click',()=>setEditorMode('visual'));
 codeModeButton.addEventListener('click',()=>setEditorMode('code'));
 let config={profiles:[],selected_profile_id:null,mode:'rich',series:false,status:''};

@@ -33,9 +33,9 @@ body{margin:0;display:flex;flex-direction:column;height:100vh}
 header{padding:10px;background:#fff;border-bottom:1px solid #ddd;display:flex;flex-direction:column;gap:8px;align-items:stretch}.toolbar-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;width:100%}.heading-tool{padding:4px 7px;font-size:12px;min-width:34px}.plain-unsupported{outline:2px dashed #c87919!important;background-color:#fff3d8!important}.plain-unsupported::after{content:"";display:inline-block}
 button,select{font:inherit;padding:7px 10px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer}
 button:hover{background:#eee}
-main{flex:1;min-height:0;overflow:auto;padding:24px}
-#editor{max-width:1000px;min-height:240px;margin:0 auto;background:#fff;padding:32px;box-shadow:0 1px 5px #0001;outline:none;line-height:1.55;overflow-wrap:anywhere}
-#code-editor-wrap{display:none;position:relative;width:min(100%,1000px);height:auto;min-height:0;margin:0 auto;background:#fff;overflow:hidden;box-shadow:0 1px 5px #0001}
+main{display:flex;flex:1;flex-direction:column;min-height:0;overflow:hidden;padding:24px}
+#editor{width:min(100%,1000px);flex:1;min-height:0;margin:0 auto;background:#fff;padding:32px;box-shadow:0 1px 5px #0001;outline:none;line-height:1.55;overflow:auto;overflow-wrap:anywhere}
+#code-editor-wrap{display:none;position:relative;flex:none;width:min(100%,1000px);height:auto;min-height:240px;margin:0 auto;background:#fff;overflow:hidden;box-shadow:0 1px 5px #0001}
 #code-highlight,#code-editor{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:32px;border:0;font:13px/1.65 Consolas,"Courier New",monospace;tab-size:2;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal}
 #code-highlight{pointer-events:none;overflow:hidden;color:#263445}
 #code-editor{z-index:1;resize:none;overflow:hidden;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:#172b4d;outline:none}
@@ -224,9 +224,10 @@ function formatHtmlForDisplay(markup){
  const appendText=value=>{
   if(!value)return;
   const chunks=value.split(/(\s+)/);
-  for(const chunk of chunks){
+  for(let chunk of chunks){
    if(!chunk)continue;
-   if(lineStart&&chunk.trim()){output+='  '.repeat(Math.max(0,depth));lineStart=false;}
+   if(lineStart&&chunk.trim())lineStart=false;
+   if(lineStart&&chunk.includes('\n'))chunk=chunk.replace(/\n[ \t]*/g,'\n');
    output+=chunk;
    if(chunk.includes('\n'))lineStart=output.endsWith('\n');
   }

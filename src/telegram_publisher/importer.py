@@ -20,6 +20,13 @@ from bs4 import BeautifulSoup, Tag
 from bs4.formatter import HTMLFormatter
 from charset_normalizer import from_bytes
 
+class PreserveAttributeOrderFormatter(HTMLFormatter):
+    """Сохранять порядок атрибутов, заданный при очистке HTML."""
+
+    def attributes(self, tag: Tag):
+        return tag.attrs.items()
+
+
 
 MAX_DOWNLOAD_BYTES = 12 * 1024 * 1024
 USER_AGENT = "TelegramPublisher/0.1 (+local post importer)"
@@ -242,7 +249,7 @@ def _sanitize_html(content: str, base_url: str | None = None) -> str:
         if not media.get("src"):
             media.decompose()
 
-    return soup.decode(formatter=HTMLFormatter(sort_attributes=False))
+    return soup.decode(formatter=PreserveAttributeOrderFormatter())
 
 def convert_html(content: str, base_url: str | None = None) -> str:
     """Очистить HTML, сохранив разметку и публичные ссылки на медиа."""

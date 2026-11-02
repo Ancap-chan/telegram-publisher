@@ -54,7 +54,7 @@ body.code-mode #code-editor{display:block}
 .editor-mode-tools{padding-bottom:2px;border-bottom:1px solid #e4e6e9}
 .editor-mode-tools button[aria-pressed="true"]{background:#245eb5;color:#fff;border-color:#245eb5}
 body.code-mode .edit-tools{display:none}
-#editor img,#editor video{max-width:100%;height:auto}
+#editor img,#editor video{max-width:100%;height:auto}\n#editor input[type=checkbox]{width:16px;height:16px;vertical-align:middle;margin:0 6px 0 0}
 #editor table{border-collapse:collapse;width:100%}
 #editor td,#editor th{border:1px solid #888;padding:6px}
 footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
@@ -464,7 +464,7 @@ function cleanClipboardHtml(markup){
  parsed.querySelectorAll('input').forEach(node=>{
   if(node.getAttribute('type')!=='checkbox'||!node.closest('li'))node.remove();
  });
- const allowed=new Set(['a','aside','b','blockquote','br','caption','cite','code','del','details','em','figcaption','footer','h1','h2','h3','h4','h5','h6','hr','i','img','input','ins','li','mark','ol','p','pre','s','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','tg-map','u','ul','video']);
+ const allowed=new Set(['a','aside','b','blockquote','br','caption','cite','code','del','details','em','figcaption','footer','h1','h2','h3','h4','h5','h6','hr','i','img','input','ins','li','mark','ol','p','pre','s','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','tg-map','u','ul','video']);
  const attributes={
   a:['href','name'],code:['class'],img:['src','alt'],input:['type','checked'],video:['src'],audio:['src'],
   table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'],
@@ -804,7 +804,12 @@ document.querySelectorAll('[data-insert]').forEach(button=>button.addEventListen
  }
  if(action==='math'){
   const value=prompt('Введите формулу в синтаксисе LaTeX','x^2 + y^2 = z^2');
-  if(value)insertEditorMarkup('<tg-math-block>'+escapeInsertedText(value)+'</tg-math-block><p><br></p>');
+  if(value){
+   const block=confirm('Разместить формулу отдельным блоком?\\nОК — блочная формула; Отмена — встроенная формула.');
+   insertEditorMarkup(block
+    ?'<tg-math-block>'+escapeInsertedText(value)+'</tg-math-block><p><br></p>'
+    :'<tg-math>'+escapeInsertedText(value)+'</tg-math>');
+  }
  }
 }));
 function askUrl(label){const value=prompt(label,'https://');return value&&/^https?:\/\//i.test(value)?value.trim():null}
@@ -957,7 +962,7 @@ const PLAIN_SUBSTITUTIONS=[
  {selector:'h1,h2,h3,h4,h5,h6',message:'Уровень заголовка будет заменён жирным текстом.'},
  {selector:'table',message:'Таблица будет преобразована в текстовые строки.'},
  {selector:'img,video',message:'Медиа будет заменено скрытой ссылкой для предпросмотра.'},
- {selector:'mark,sub,sup,small,big,font,span[style],tg-spoiler,tg-math-block,details,hr,li input[type="checkbox"]',message:'Этот элемент не поддерживается в обычном режиме; текстовое содержимое сохранится.'}
+ {selector:'mark,sub,sup,small,big,font,span[style],tg-spoiler,tg-math,tg-math-block,details,hr,li input[type="checkbox"]',message:'Этот элемент не поддерживается в обычном режиме; текстовое содержимое сохранится.'}
 ];
 function updatePlainCompatibility(){
  editor.querySelectorAll('.plain-unsupported').forEach(node=>{

@@ -1370,6 +1370,7 @@ function autoPlaceBreaks(){
 }
 function insertBreakAtSelection(){
  if(!isSeriesMode())return;
+ if(editorMode==='code'){insertCodeMarkup('<!--'+SERIES_BREAK_COMMENT+'-->');return}
  let range=savedRange?savedRange.cloneRange():null;
  const selection=window.getSelection();
  if(!range&&selection&&selection.rangeCount)range=selection.getRangeAt(0).cloneRange();

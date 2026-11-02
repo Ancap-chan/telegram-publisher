@@ -30,7 +30,7 @@ EDITOR_HTML = r"""<!doctype html>
 :root{font:16px "Segoe UI",sans-serif;color:#222;background:#f4f5f7}
 *{box-sizing:border-box}
 body{margin:0;display:flex;flex-direction:column;height:100vh}
-header{padding:10px;background:#fff;border-bottom:1px solid #ddd;display:flex;flex-direction:column;gap:8px;align-items:stretch}.toolbar-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;width:100%}.heading-tool{padding:4px 7px;font-size:12px;min-width:34px}.plain-unsupported{outline:2px dashed #c87919!important;background-color:#fff3d8!important}.plain-unsupported::after{content:"";display:inline-block}
+header{padding:10px;background:#fff;border-bottom:1px solid #ddd;display:flex;flex-direction:column;gap:8px;align-items:stretch}.toolbar-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;width:100%}.toolbar-group{display:inline-flex;gap:3px;align-items:center;padding:2px 6px;border-right:1px solid #d9dde3}.toolbar-group:last-child{border-right:0}.edit-tools button{min-width:30px;padding:5px 7px;font-size:13px;line-height:1.2}.edit-tools button:focus-visible{outline:2px solid #245eb5;outline-offset:1px}.heading-tool{padding:4px 7px;font-size:12px;min-width:34px}.plain-unsupported{outline:2px dashed #c87919!important;background-color:#fff3d8!important}.plain-unsupported::after{content:"";display:inline-block}
 button,select{font:inherit;padding:7px 10px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer}
 button:hover{background:#eee}
 main{display:flex;flex:1;flex-direction:column;min-height:0;overflow:hidden;padding:24px}
@@ -54,7 +54,7 @@ body.code-mode #code-editor{display:block}
 .editor-mode-tools{padding-bottom:2px;border-bottom:1px solid #e4e6e9}
 .editor-mode-tools button[aria-pressed="true"]{background:#245eb5;color:#fff;border-color:#245eb5}
 body.code-mode .edit-tools{display:none}
-#editor img,#editor video{max-width:100%;height:auto}
+#editor img,#editor video{max-width:100%;height:auto}\n#editor input[type=checkbox]{width:16px;height:16px;vertical-align:middle;margin:0 6px 0 0}
 #editor table{border-collapse:collapse;width:100%}
 #editor td,#editor th{border:1px solid #888;padding:6px}
 footer{padding:10px 14px;background:#fff;border-top:1px solid #ddd;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
@@ -100,9 +100,45 @@ button:disabled{opacity:.55;cursor:default}
 <header>
 <div class="toolbar-row editor-mode-tools" role="group" aria-label="Режим редактирования"><button id="visual-mode" type="button" aria-pressed="true">Визуально</button><button id="code-mode" type="button" aria-pressed="false">HTML-код</button></div>
 <div class="toolbar-row file-tools"><button id="import-url">Импортировать по ссылке</button><button id="import-file">Открыть файл…</button><button id="save-draft">Сохранить черновик…</button><button id="manual" style="margin-left:auto">Руководство</button></div>
-<div class="toolbar-row edit-tools"><button data-cmd="bold"><b>Жирный</b></button><button data-cmd="italic"><i>Курсив</i></button><button data-cmd="underline"><u>Подчёркнутый</u></button><button data-cmd="strikeThrough"><s>Зачёркнутый</s></button>
-<button data-cmd="insertUnorderedList">• Список</button><button data-cmd="insertOrderedList">1. Список</button><button data-cmd="formatBlock" data-value="blockquote">Цитата</button><button class="heading-tool" data-cmd="formatBlock" data-value="h1" data-rich-only>H1</button><button class="heading-tool" data-cmd="formatBlock" data-value="h2" data-rich-only>H2</button><button class="heading-tool" data-cmd="formatBlock" data-value="h3" data-rich-only>H3</button><button class="heading-tool" data-cmd="formatBlock" data-value="h4" data-rich-only>H4</button><button class="heading-tool" data-cmd="formatBlock" data-value="h5" data-rich-only>H5</button><button class="heading-tool" data-cmd="formatBlock" data-value="h6" data-rich-only>H6</button><button data-cmd="formatBlock" data-value="p">Абзац</button>
-<button id="link">Ссылка</button><button id="media">Медиа по URL</button><button id="local-media" hidden>Медиа из файла</button><button id="table" data-rich-only>Таблица</button><button data-cmd="removeFormat">Очистить формат</button><span id="series-tools"><button id="insert-break">Разрыв сообщения</button></span></div>
+<div class="toolbar-row edit-tools" role="toolbar" aria-label="Форматирование публикации">
+<div class="toolbar-group" role="group" aria-label="Символьное форматирование">
+<button type="button" data-cmd="bold" title="Жирный (Ctrl+B)" aria-label="Жирный"><b>Ж</b></button>
+<button type="button" data-cmd="italic" title="Курсив (Ctrl+I)" aria-label="Курсив"><i>К</i></button>
+<button type="button" data-cmd="underline" title="Подчёркнутый (Ctrl+U)" aria-label="Подчёркнутый"><u>Ч</u></button>
+<button type="button" data-cmd="strikeThrough" title="Зачёркнутый" aria-label="Зачёркнутый"><s>З</s></button>
+<button type="button" data-cmd="subscript" title="Подстрочный индекс" aria-label="Подстрочный индекс">x₂</button>
+<button type="button" data-cmd="superscript" title="Надстрочный индекс" aria-label="Надстрочный индекс">x²</button>
+<button type="button" data-insert="code" title="Моноширинный текст" aria-label="Моноширинный текст">М</button>
+<button type="button" data-insert="spoiler" title="Спойлер" aria-label="Спойлер">Сп</button>
+</div>
+<div class="toolbar-group" role="group" aria-label="Структура текста">
+<button type="button" data-cmd="insertUnorderedList" title="Маркированный список" aria-label="Маркированный список">•</button>
+<button type="button" data-cmd="insertOrderedList" title="Нумерованный список" aria-label="Нумерованный список">1.</button>
+<button type="button" data-insert="checkbox" title="Вставить пункт чек-листа" aria-label="Пункт чек-листа">☐</button>
+<button type="button" data-cmd="formatBlock" data-value="blockquote" title="Цитата" aria-label="Цитата">❞</button>
+<button type="button" data-insert="pre" title="Блок кода" aria-label="Блок кода">&lt;/&gt;</button>
+<button type="button" data-cmd="insertHorizontalRule" title="Горизонтальный разделитель" aria-label="Горизонтальный разделитель">―</button>
+<button type="button" data-insert="details" title="Раскрывающийся блок" aria-label="Раскрывающийся блок">▾</button>
+<button type="button" class="heading-tool" data-cmd="formatBlock" data-value="h1" data-rich-only title="Заголовок 1">H1</button>
+<button type="button" class="heading-tool" data-cmd="formatBlock" data-value="h2" data-rich-only title="Заголовок 2">H2</button>
+<button type="button" class="heading-tool" data-cmd="formatBlock" data-value="h3" data-rich-only title="Заголовок 3">H3</button>
+<button type="button" class="heading-tool" data-cmd="formatBlock" data-value="h4" data-rich-only title="Заголовок 4">H4</button>
+<button type="button" class="heading-tool" data-cmd="formatBlock" data-value="h5" data-rich-only title="Заголовок 5">H5</button>
+<button type="button" class="heading-tool" data-cmd="formatBlock" data-value="h6" data-rich-only title="Заголовок 6">H6</button>
+<button type="button" data-cmd="formatBlock" data-value="p" title="Обычный абзац">P</button>
+</div>
+<div class="toolbar-group" role="group" aria-label="Вставка объектов">
+<button type="button" id="link" title="Вставить ссылку">↗</button>
+<button type="button" data-insert="symbol" title="Вставить символ">Ω</button>
+<button type="button" data-insert="emoji" title="Вставить эмодзи">☺</button>
+<button type="button" data-insert="math" title="Вставить математическую формулу">∑</button>
+<button type="button" id="media" title="Добавить медиа по URL">Медиа URL</button>
+<button type="button" id="local-media" hidden title="Добавить медиа из файла">Файл</button>
+<button type="button" id="table" data-rich-only title="Вставить таблицу">Таблица</button>
+<button type="button" data-cmd="removeFormat" title="Очистить форматирование">Tx</button>
+<span id="series-tools"><button type="button" id="insert-break" title="Разрыв сообщения">Разрыв</button></span>
+</div>
+</div>
 </header>
 <div id="series-status" class="series-status" aria-live="polite" hidden></div><main><div id="editor" contenteditable="true" spellcheck="true"></div><div id="code-editor-wrap"><pre id="code-highlight" aria-hidden="true"></pre><textarea id="code-editor" aria-label="HTML-код публикации" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="soft"></textarea></div></main>
 <div id="context-menu" class="context-menu" hidden>
@@ -193,7 +229,7 @@ function resizeCodeEditor(){
 function escapeCodeHtml(value){
  return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
-const CODE_BLOCK_TAGS=new Set(['address','article','aside','blockquote','body','caption','dd','details','div','dl','dt','fieldset','figcaption','figure','footer','form','h1','h2','h3','h4','h5','h6','head','header','hr','html','li','main','nav','ol','p','pre','section','summary','table','tbody','td','tfoot','th','thead','tr','ul']);
+const CODE_BLOCK_TAGS=new Set(['address','article','aside','blockquote','body','caption','dd','details','div','dl','dt','fieldset','figcaption','figure','footer','form','h1','h2','h3','h4','h5','h6','head','header','hr','html','li','main','nav','ol','p','pre','section','summary','tg-math-block','table','tbody','td','tfoot','th','thead','tr','ul']);
 function removeFormattingWhitespace(root){
  const preservedTags=new Set(['code','pre','script','style','textarea']);
  const clean=parent=>{
@@ -371,10 +407,17 @@ function rememberEditorSelection(){
 }
 function restoreEditorSelection(){
  editor.focus();
- if(!savedRange)return false;
  const selection=window.getSelection();
+ if(!selection)return false;
  selection.removeAllRanges();
- selection.addRange(savedRange);
+ if(savedRange){
+  selection.addRange(savedRange);
+  return true;
+ }
+ const range=document.createRange();
+ range.selectNodeContents(editor);
+ range.collapse(false);
+ selection.addRange(range);
  return true;
 }
 function cleanClipboardHtml(markup){
@@ -424,17 +467,20 @@ function cleanClipboardHtml(markup){
   video.setAttribute('src',url);
   video.querySelectorAll('source').forEach(source=>source.remove());
  }
- parsed.querySelectorAll('script,style,base,meta,link,iframe,object,embed,svg,canvas,form,button,input,select,textarea').forEach(node=>node.remove());
- const allowed=new Set(['a','aside','b','blockquote','br','caption','cite','code','del','details','em','figcaption','footer','h1','h2','h3','h4','h5','h6','hr','i','img','ins','li','mark','ol','p','pre','s','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','tg-map','u','ul','video']);
+ parsed.querySelectorAll('script,style,base,meta,link,iframe,object,embed,svg,canvas,form,button,select,textarea').forEach(node=>node.remove());
+ parsed.querySelectorAll('input').forEach(node=>{
+  if(node.getAttribute('type')!=='checkbox'||!node.closest('li'))node.remove();
+ });
+ const allowed=new Set(['a','aside','b','blockquote','br','caption','cite','code','del','details','em','figcaption','footer','h1','h2','h3','h4','h5','h6','hr','i','img','input','ins','li','mark','ol','p','pre','s','strong','sub','summary','sup','table','tbody','td','th','thead','tr','tg-button','tg-button-row','tg-collage','tg-emoji','tg-math','tg-math-block','tg-reference','tg-slideshow','tg-spoiler','tg-time','tg-map','u','ul','video']);
  const attributes={
-  a:['href','name'],code:['class'],img:['src','alt'],video:['src'],audio:['src'],
+  a:['href','name'],code:['class'],img:['src','alt'],input:['type','checked'],video:['src'],audio:['src'],
   table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'],
   td:['colspan','rowspan','align','valign'],th:['colspan','rowspan','align','valign'],
   'tg-emoji':['emoji-id'],'tg-time':['unix','format'],'tg-reference':['name'],
   'tg-button':['type','style','url','data','text','query','forward-text','request-write-access','allow-user-chats','allow-group-chats','allow-channel-chats'],
   'tg-button-row':['align'],'tg-map':['lat','long','zoom']
  };
- const booleanAttributes={table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'], 'tg-button':['request-write-access','allow-user-chats','allow-group-chats','allow-channel-chats']};
+ const booleanAttributes={table:['bordered','striped','compact'],blockquote:['expandable'],details:['open'],input:['checked'], 'tg-button':['request-write-access','allow-user-chats','allow-group-chats','allow-channel-chats']};
  for(const node of Array.from(parsed.body.querySelectorAll('*')).reverse()){
   if(node.tagName.toLowerCase()==='span'){
    if(node.classList.contains('tg-spoiler')){const replacement=parsed.createElement('tg-spoiler');replacement.innerHTML=node.innerHTML;node.replaceWith(replacement)}
@@ -457,6 +503,7 @@ function cleanClipboardHtml(markup){
    if(attribute==='src'&&!/^https?:\/\//i.test(value))node.removeAttribute(attribute);
    if(attribute!=='src'&&!/^(https?:\/\/|mailto:|tel:|tg:\/\/|#)/i.test(value))node.removeAttribute(attribute);
   }
+  if(tag==='input'&&node.getAttribute('type')!=='checkbox')node.remove();
   for(const attribute of ['colspan','rowspan','unix','emoji-id','lat','long','zoom']){
    if(!node.hasAttribute(attribute))continue;
    const value=node.getAttribute(attribute)||'';
@@ -705,7 +752,72 @@ document.getElementById('manual').onclick=async()=>{
  catch(error){document.getElementById('status').textContent='Не удалось открыть руководство: '+(error&&error.message?error.message:String(error));}
 };
 document.querySelectorAll('[data-cmd]').forEach(button=>button.addEventListener('click',()=>{
- editor.focus();const cmd=button.dataset.cmd;document.execCommand(cmd,false,button.dataset.value||null);
+ restoreEditorSelection();
+ const cmd=button.dataset.cmd;
+ document.execCommand(cmd,false,button.dataset.value||null);
+ rememberEditorSelection();
+ updatePlainCompatibility();
+ updateSeriesStatus();
+}));
+function escapeInsertedText(value){
+ return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function insertEditorMarkup(markup){
+ restoreEditorSelection();
+ document.execCommand('insertHTML',false,markup);
+ rememberEditorSelection();
+ updatePlainCompatibility();
+ updateSeriesStatus();
+ refreshCodeEditor();
+}
+function insertWrappedElement(tag,placeholder,attributes=''){
+ restoreEditorSelection();
+ const selection=window.getSelection();
+ const selectedText=selection&&!selection.isCollapsed?selection.toString():'';
+ const content=escapeInsertedText(selectedText||placeholder);
+ insertEditorMarkup('<'+tag+(attributes?' '+attributes:'')+'>'+content+'</'+tag+'>');
+}
+document.querySelectorAll('[data-insert]').forEach(button=>button.addEventListener('click',()=>{
+ const action=button.dataset.insert;
+ if(action==='code'){insertWrappedElement('code','код');return}
+ if(action==='spoiler'){insertWrappedElement('tg-spoiler','скрытый текст');return}
+ if(action==='pre'){
+  restoreEditorSelection();
+  const selection=window.getSelection();
+  const selectedText=selection&&!selection.isCollapsed?selection.toString():'';
+  insertEditorMarkup('<pre><code>'+escapeInsertedText(selectedText||'код')+'</code></pre><p><br></p>');
+  return;
+ }
+ if(action==='checkbox'){
+  restoreEditorSelection();
+  const selection=window.getSelection();
+  const selectedText=selection&&!selection.isCollapsed?selection.toString():'';
+  insertEditorMarkup('<ul><li><input type="checkbox">'+escapeInsertedText(selectedText||'Пункт чек-листа')+'</li></ul><p><br></p>');
+  return;
+ }
+ if(action==='details'){
+  insertEditorMarkup('<details><summary>Подробнее</summary><p>Содержимое раскрывающегося блока</p></details><p><br></p>');
+  return;
+ }
+ if(action==='symbol'){
+  const value=prompt('Введите символ или последовательность символов','© ® ™ § ¶ † ‡ • — – … → ← ≠ ≤ ≥ × ÷ ± ∞');
+  if(value)insertEditorMarkup(escapeInsertedText(value));
+  return;
+ }
+ if(action==='emoji'){
+  const value=prompt('Введите эмодзи','😀 🙂 🤔 ❤️ 👍 👎 🎉 🔥 🚀');
+  if(value)insertEditorMarkup(escapeInsertedText(value));
+  return;
+ }
+ if(action==='math'){
+  const value=prompt('Введите формулу в синтаксисе LaTeX','x^2 + y^2 = z^2');
+  if(value){
+   const block=confirm('Разместить формулу отдельным блоком?\\nОК — блочная формула; Отмена — встроенная формула.');
+   insertEditorMarkup(block
+    ?'<tg-math-block>'+escapeInsertedText(value)+'</tg-math-block><p><br></p>'
+    :'<tg-math>'+escapeInsertedText(value)+'</tg-math>');
+  }
+ }
 }));
 function askUrl(label){const value=prompt(label,'https://');return value&&/^https?:\/\//i.test(value)?value.trim():null}
 document.getElementById('link').onclick=()=>{const url=askUrl('Публичный URL ссылки');if(url){editor.focus();document.execCommand('createLink',false,url)}};
@@ -857,7 +969,7 @@ const PLAIN_SUBSTITUTIONS=[
  {selector:'h1,h2,h3,h4,h5,h6',message:'Уровень заголовка будет заменён жирным текстом.'},
  {selector:'table',message:'Таблица будет преобразована в текстовые строки.'},
  {selector:'img,video',message:'Медиа будет заменено скрытой ссылкой для предпросмотра.'},
- {selector:'mark,sub,sup,small,big,font,span[style]',message:'Это оформление не поддерживается в обычном режиме; текст сохранится.'}
+ {selector:'mark,sub,sup,small,big,font,span[style],tg-spoiler,tg-math,tg-math-block,details,hr,li input[type="checkbox"]',message:'Этот элемент не поддерживается в обычном режиме; текстовое содержимое сохранится.'}
 ];
 function updatePlainCompatibility(){
  editor.querySelectorAll('.plain-unsupported').forEach(node=>{

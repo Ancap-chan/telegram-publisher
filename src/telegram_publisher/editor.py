@@ -918,31 +918,51 @@ document.getElementById('manual').onclick=async()=>{
  try{await window.pywebview.api.open_manual()}
  catch(error){document.getElementById('status').textContent='Не удалось открыть руководство: '+(error&&error.message?error.message:String(error));}
 };
+function insertCodeMarkup(markup,caretInside=false){
+ const start=codeEditor.selectionStart,end=codeEditor.selectionEnd,value=String(markup||'');
+ codeEditor.setRangeText(value,start,end,'end');
+ if(caretInside){const caret=start+value.indexOf('>')+1;codeEditor.setSelectionRange(caret,caret)}
+ highlightHtmlCode();resizeCodeEditor();updateToolbarState();
+}
+function selectedEditorText(){
+ if(editorMode==='code')return codeEditor.value.slice(codeEditor.selectionStart,codeEditor.selectionEnd);
+ const selection=window.getSelection();return selection&&!selection.isCollapsed?selection.toString():'';
+}
+function applyCodeCommand(button){
+ const command=button.dataset.cmd,selected=selectedEditorText(),wrap=(open,close)=>insertCodeMarkup(open+selected+close,!selected);
+ if(command==='formatBlock'){const tag=(button.dataset.value||'p').toLowerCase();wrap('<'+tag+'>','</'+tag+'>');return}
+ const tags={bold:['<strong>','</strong>'],italic:['<em>','</em>'],underline:['<u>','</u>'],strikeThrough:['<s>','</s>'],subscript:['<sub>','</sub>'],superscript:['<sup>','</sup>']};
+ if(tags[command]){wrap(tags[command][0],tags[command][1]);return}
+ if(command==='insertUnorderedList'||command==='insertOrderedList'){
+  const tag=command==='insertUnorderedList'?'ul':'ol';
+  const items=(selected||'Пункт списка').split(/\r?\n/).map(item=>'<li>'+item+'</li>').join('');
+  insertCodeMarkup('<'+tag+'>'+items+'</'+tag+'>',!selected);return;
+ }
+ if(command==='insertHorizontalRule'){insertCodeMarkup('<hr>');return}
+ if(command==='removeFormat'){
+  const holder=document.createElement('div');holder.innerHTML=selected;
+  holder.querySelectorAll('strong,b,em,i,u,s,del,strike,sub,sup,code,span').forEach(node=>node.replaceWith(...node.childNodes));
+  insertCodeMarkup(holder.innerHTML);
+ }
+}
 document.querySelectorAll('[data-cmd]').forEach(button=>button.addEventListener('click',()=>{
- restoreEditorSelection();
- const cmd=button.dataset.cmd;
+ if(editorMode==='code'){applyCodeCommand(button);return}
+ restoreEditorSelection();const cmd=button.dataset.cmd;
  document.execCommand(cmd,false,button.dataset.value||null);
- rememberEditorSelection();
- updatePlainCompatibility();
- updateSeriesStatus();
+ rememberEditorSelection();updatePlainCompatibility();updateSeriesStatus();updateToolbarState();
 }));
 function escapeInsertedText(value){
  return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
-function insertEditorMarkup(markup){
- restoreEditorSelection();
- document.execCommand('insertHTML',false,markup);
- rememberEditorSelection();
- updatePlainCompatibility();
- updateSeriesStatus();
- refreshCodeEditor();
+function insertEditorMarkup(markup,caretInside=false){
+ if(editorMode==='code'){insertCodeMarkup(markup,caretInside);return}
+ restoreEditorSelection();document.execCommand('insertHTML',false,markup);rememberEditorSelection();
+ updatePlainCompatibility();updateSeriesStatus();refreshCodeEditor();updateToolbarState();
 }
 function insertWrappedElement(tag,placeholder,attributes=''){
- restoreEditorSelection();
- const selection=window.getSelection();
- const selectedText=selection&&!selection.isCollapsed?selection.toString():'';
- const content=escapeInsertedText(selectedText||placeholder);
- insertEditorMarkup('<'+tag+(attributes?' '+attributes:'')+'>'+content+'</'+tag+'>');
+ const selectedText=selectedEditorText(),content=selectedText||escapeInsertedText(placeholder);
+ const opening='<'+tag+(attributes?' '+attributes:'')+'>';
+ insertEditorMarkup(opening+content+'</'+tag+'>',!selectedText);
 }
 function openInsertDialog(title,content,confirmLabel='Вставить'){
  document.getElementById('insert-dialog-title').textContent=title;
@@ -959,24 +979,24 @@ document.getElementById('insert-dialog-backdrop').addEventListener('click',event
  if(event.target.id==='insert-dialog-backdrop')closeInsertDialog();
 });
 function openCharacterPicker(kind){
- const symbols=['©','®','™','§','¶','†','‡','•','‣','–','—','…','«','»','‹','›','→','←','↑','↓','↔','⇒','⇐','⇔','≠','≈','≤','≥','±','×','÷','∞','√','∑','∏','∫','∂','∆','∇','∈','∉','⊂','⊃','∩','∪','∧','∨','¬','∀','∃','°','′','″','€','£','¥','₽','₿','α','β','γ','δ','ε','θ','λ','μ','π','σ','φ','ω'];
- const emojis=['😀','😃','😄','😁','😆','😅','😂','🤣','😊','🙂','🙃','😉','😍','🥰','😘','😎','🤔','🤨','😐','😏','🙄','😴','😭','😡','🤯','🥳','🤓','👀','👍','👎','👏','🙏','💪','🤝','❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','🔥','✨','⭐','🌟','🎉','🎯','🚀','💡','📌','📚','⚖️','💰','🪙','🐈','🐱','🌍','☀️','🌙','☕'];
- const values=kind==='emoji'?emojis:symbols;
- const grid=document.createElement('div');grid.className='insert-grid';
- let chosen='';
- values.forEach(value=>{
-  const button=document.createElement('button');button.type='button';button.textContent=value;button.title=value;
-  button.addEventListener('click',()=>{
-   chosen=value;
-   grid.querySelectorAll('button').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));
-  });
+ const symbols=[
+  ['©','©'],['®','®'],['™','™'],['§','§'],['¶','¶'],['†','†'],['‡','‡'],['•','•'],['‣','‣'],['–','–'],['—','—'],['…','…'],['«','«'],['»','»'],['‹','‹'],['›','›'],
+  ['→','→'],['←','←'],['↑','↑'],['↓','↓'],['↔','↔'],['⇒','⇒'],['⇐','⇐'],['⇔','⇔'],['≠','≠'],['≈','≈'],['≤','≤'],['≥','≥'],['±','±'],['×','×'],['÷','÷'],['∞','∞'],['√','√'],['∑','∑'],['∏','∏'],['∫','∫'],['∂','∂'],['∆','∆'],['∇','∇'],['∈','∈'],['∉','∉'],['⊂','⊂'],['⊃','⊃'],['∩','∩'],['∪','∪'],['∧','∧'],['∨','∨'],['¬','¬'],['∀','∀'],['∃','∃'],
+  ['°','°'],['′','′'],['″','″'],['€','€'],['£','£'],['¥','¥'],['₽','₽'],['₿','₿'],['α','α'],['β','β'],['γ','γ'],['δ','δ'],['ε','ε'],['θ','θ'],['λ','λ'],['μ','μ'],['π','π'],['σ','σ'],['φ','φ'],['ω','ω'],
+  ['&nbsp;','&#160;'],['&ensp;','&#8194;'],['&emsp;','&#8195;'],['&thinsp;','&#8201;'],['&hairsp;','&#8202;'],['&zwnj;','&#8204;'],['&zwj;','&#8205;'],['&shy;','&#173;'],['&#8203;','&#8203;'],
+  ['&lt;','&lt;'],['&gt;','&gt;'],['&amp;','&amp;'],['&quot;','&quot;'],['&apos;','&#39;']
+ ];
+ const emojis=['😀','😃','😄','😁','😆','😅','😂','🤣','😊','🙂','🙃','😉','😍','🥰','😘','😎','🤔','🤨','😐','😏','🙄','😴','😭','😡','🤯','🥳','🤓','👀','👍','👎','👏','🙏','💪','🤝','❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💖','💗','💓','💞','💕','🔥','✨','⭐','🌟','💫','🎉','🎊','🎯','🚀','💡','📌','📚','⚖️','💰','🪙','🐈','🐱','🐈‍⬛','🐶','🦊','🐻','🐼','🐸','🦉','🦋','🌍','🌎','🌏','🌱','🌿','🍀','🌸','🌻','☀️','🌙','☕','🍵','🍰','🍎','🍋','🍓','⚙️','🔧','🔒','🔑','💻','🖥️','📱','🌐','🔗','🧩','📝','✏️','✅','❌','⚠️','❗','❓','➕','➖','➡️','⬅️','⬆️','⬇️'];
+ const values=kind==='emoji'?emojis:symbols,grid=document.createElement('div');grid.className='insert-grid';
+ let chosen=null;
+ values.forEach(entry=>{
+  const label=Array.isArray(entry)?entry[0]:entry,markup=Array.isArray(entry)?entry[1]:escapeInsertedText(entry);
+  const button=document.createElement('button');button.type='button';button.textContent=label;button.title=label;
+  button.addEventListener('click',()=>{chosen=markup;grid.querySelectorAll('button').forEach(item=>item.setAttribute('aria-pressed',String(item===button)))});
   grid.append(button);
  });
  openInsertDialog(kind==='emoji'?'Выбор эмодзи':'Выбор символа',grid);
- const confirm=document.getElementById('insert-dialog-confirm');
- confirm.onclick=()=>{
-  if(chosen){closeInsertDialog();insertEditorMarkup(escapeInsertedText(chosen));}
- };
+ document.getElementById('insert-dialog-confirm').onclick=()=>{if(chosen!==null){closeInsertDialog();insertEditorMarkup(chosen)}};
 }
 function openMathBuilder(){
  const panel=document.createElement('div');
@@ -1016,39 +1036,33 @@ document.querySelectorAll('[data-insert]').forEach(button=>button.addEventListen
  if(action==='code'){insertWrappedElement('code','код');return}
  if(action==='spoiler'){insertWrappedElement('tg-spoiler','скрытый текст');return}
  if(action==='pre'){
-  restoreEditorSelection();
-  const selection=window.getSelection();
-  const selectedText=selection&&!selection.isCollapsed?selection.toString():'';
-  insertEditorMarkup('<pre><code>'+escapeInsertedText(selectedText||'код')+'</code></pre><p><br></p>');
-  return;
+  const selectedText=selectedEditorText();insertEditorMarkup('<pre><code>'+(selectedText||'код')+'</code></pre><p><br></p>',!selectedText);return;
  }
  if(action==='checkbox'){
-  restoreEditorSelection();
-  const selection=window.getSelection();
-  const selectedText=selection&&!selection.isCollapsed?selection.toString():'';
-  insertEditorMarkup('<ul><li><input type="checkbox">'+escapeInsertedText(selectedText||'Пункт чек-листа')+'</li></ul><p><br></p>');
-  return;
+  const selectedText=selectedEditorText();insertEditorMarkup('<ul><li><input type="checkbox">'+(selectedText||'Пункт чек-листа')+'</li></ul><p><br></p>',!selectedText);return;
  }
  if(action==='details'){
-  restoreEditorSelection();
-  const selection=window.getSelection();
   let content='';
-  if(selection&&!selection.isCollapsed){
-   const holder=document.createElement('div');
-   holder.append(selection.getRangeAt(0).cloneContents());
-   content=holder.innerHTML;
-  }else{
-   content='Содержимое раскрывающегося блока';
+  if(editorMode==='code')content=selectedEditorText()||'Содержимое раскрывающегося блока';
+  else{
+   restoreEditorSelection();const selection=window.getSelection();
+   if(selection&&!selection.isCollapsed){const holder=document.createElement('div');holder.append(selection.getRangeAt(0).cloneContents());content=holder.innerHTML}
+   else content='Содержимое раскрывающегося блока';
   }
-  insertEditorMarkup('<details><summary>Подробнее</summary><div>'+content+'</div></details><p><br></p>');
-  return;
+  insertEditorMarkup('<details><summary>Подробнее</summary><div>'+content+'</div></details><p><br></p>');return;
  }
  if(action==='symbol'){openCharacterPicker('symbol');return}
  if(action==='emoji'){openCharacterPicker('emoji');return}
  if(action==='math'){openMathBuilder();return}
 }));
 function askUrl(label){const value=prompt(label,'https://');return value&&/^https?:\/\//i.test(value)?value.trim():null}
-document.getElementById('link').onclick=()=>{const url=askUrl('Публичный URL ссылки');if(url){editor.focus();document.execCommand('createLink',false,url)}};
+document.getElementById('link').onclick=()=>{
+ const url=askUrl('Публичный URL ссылки');if(!url)return;
+ if(editorMode==='code'){
+  const selected=selectedEditorText(),safeUrl=url.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  insertEditorMarkup('<a href="'+safeUrl+'">'+(selected||escapeInsertedText(url))+'</a>',!selected);
+ }else{restoreEditorSelection();document.execCommand('createLink',false,url);rememberEditorSelection();refreshCodeEditor();updateToolbarState()}
+};
 function currentPartMediaCount(){
  if(!isSeriesMode())return partMediaCount(Array.from(editor.childNodes).filter(node=>!(node.nodeType===1&&node.classList.contains('series-break'))));
  const selection=window.getSelection();

@@ -242,7 +242,6 @@ def test_editor_api_rejects_retry_without_pending_messages(tmp_path):
         api.retry_pending()
 
 
-@pytest.mark.parametrize("display", ["inline", "block"])
 def test_main_exposes_math_preview_api(monkeypatch):
     class FakeEvent:
         def __iadd__(self, callback):
@@ -267,6 +266,7 @@ def test_main_exposes_math_preview_api(monkeypatch):
     assert "render_math" in window.exposed_methods
 
 
+@pytest.mark.parametrize("display", ["inline", "block"])
 def test_editor_api_renders_latex_as_mathml(display):
     api = EditorApi(FakeWindow())
 

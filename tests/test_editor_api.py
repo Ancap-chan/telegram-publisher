@@ -243,6 +243,30 @@ def test_editor_api_rejects_retry_without_pending_messages(tmp_path):
 
 
 @pytest.mark.parametrize("display", ["inline", "block"])
+def test_main_exposes_math_preview_api(monkeypatch):
+    class FakeEvent:
+        def __iadd__(self, callback):
+            self.callback = callback
+            return self
+
+    class FakeWindow:
+        def __init__(self):
+            self.exposed_methods = []
+            self.events = type("Events", (), {"loaded": FakeEvent()})()
+
+        def expose(self, *methods):
+            self.exposed_methods.extend(method.__name__ for method in methods)
+
+    window = FakeWindow()
+    monkeypatch.setattr(editor_module, "load_profiles", lambda: [])
+    monkeypatch.setattr(editor_module.webview, "create_window", lambda *args, **kwargs: window)
+    monkeypatch.setattr(editor_module.webview, "start", lambda **kwargs: None)
+
+    editor_module.main()
+
+    assert "render_math" in window.exposed_methods
+
+
 def test_editor_api_renders_latex_as_mathml(display):
     api = EditorApi(FakeWindow())
 

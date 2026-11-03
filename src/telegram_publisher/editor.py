@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 
 import webview
+from latex2mathml.converter import convert as convert_latex_to_mathml
 from webview.window import Window
 
 from . import __version__
@@ -70,6 +71,12 @@ body.code-mode .edit-tools{display:flex}
 .insert-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
 .insert-tabs button[aria-pressed=true]{background:#245eb5;color:#fff;border-color:#245eb5}
 #math-input{width:100%;min-height:72px;padding:10px;border:1px solid #c9cfd7;border-radius:6px;font:16px Consolas,monospace;resize:vertical}
+#math-preview{min-height:76px;display:flex;align-items:center;justify-content:center;overflow:auto;padding:16px;border:1px solid #d8dde4;border-radius:6px;background:#f8f9fb;font-size:18px}
+#math-preview math{max-width:100%;font-size:1.15em}
+#editor tg-math{display:inline-block;vertical-align:middle;padding:0 2px}
+#editor tg-math-block{display:block;text-align:center;margin:14px 0;padding:8px}
+#editor tg-math math{font-size:1.1em}
+#editor tg-math.math-render-error,#math-preview.math-render-error{color:#a32020;background:#fff0f0}
 .math-tools{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
 .math-tools button{min-width:42px}
 .math-mode{display:flex;gap:16px;align-items:center;margin-top:12px}
@@ -376,16 +383,36 @@ function setCodeValue(markup,format=true){
 const visualModeButton=document.getElementById('visual-mode');
 const codeModeButton=document.getElementById('code-mode');
 const SERIES_BREAK_COMMENT='telegram-publisher:series-break';
+function restoreMathSource(root){
+ root.querySelectorAll('tg-math,tg-math-block').forEach(node=>{
+  const latex=node.getAttribute('data-latex')??node.textContent??'';
+  const source=document.createElement(node.localName);source.textContent=latex;node.replaceWith(source);
+ });
+ return root;
+}
+function serializeEditorContent(root=editor){return restoreMathSource(root.cloneNode(true)).innerHTML}
+async function renderMathElements(root=editor){
+ for(const formula of root.querySelectorAll('tg-math,tg-math-block')){
+  const latex=formula.getAttribute('data-latex')??formula.textContent??'';if(!latex.trim())continue;
+  formula.setAttribute('data-latex',latex);formula.setAttribute('contenteditable','false');
+  try{
+   const mathml=await window.pywebview.api.render_math(latex,formula.localName==='tg-math-block'?'block':'inline');
+   if(!formula.isConnected)continue;
+   formula.innerHTML=mathml;formula.classList.remove('math-render-error');formula.removeAttribute('title');
+  }catch(error){
+   if(!formula.isConnected)continue;
+   formula.textContent=latex;formula.classList.add('math-render-error');
+   formula.title='Не удалось отобразить формулу: '+(error&&error.message?error.message:String(error));
+  }
+ }
+}
 function serializeEditorForCode(){
  const wrapper=document.createElement('div');
  for(const node of Array.from(editor.childNodes)){
-  if(node.nodeType===Node.ELEMENT_NODE&&node.classList.contains('series-break')){
-   wrapper.appendChild(document.createComment(SERIES_BREAK_COMMENT));
-  }else{
-   wrapper.appendChild(node.cloneNode(true));
-  }
+  if(node.nodeType===Node.ELEMENT_NODE&&node.classList.contains('series-break'))wrapper.appendChild(document.createComment(SERIES_BREAK_COMMENT));
+  else wrapper.appendChild(node.cloneNode(true));
  }
- return wrapper.innerHTML;
+ return restoreMathSource(wrapper).innerHTML;
 }
 function commitCodeToVisual(){
  if(editorMode!=='code')return;
@@ -401,6 +428,7 @@ function commitCodeToVisual(){
  editor.replaceChildren(template.content.cloneNode(true));
  selectedBreak=null;
  updateModeUI();
+ void renderMathElements(editor);
 }
 function refreshCodeEditor(){
  if(editorMode==='code')setCodeValue(serializeEditorForCode());
@@ -482,6 +510,7 @@ let config={profiles:[],selected_profile_id:null,mode:'rich',series:false,status
 function applyConfig(value){
  config=value||config;
  editor.innerHTML=window.initialContent||'';
+ void renderMathElements(editor);
  refreshCodeEditor();
  channelSelect.replaceChildren();
  for(const profile of (config.profiles||[])){
@@ -524,7 +553,7 @@ function updateToolbarState(){
   while(node&&node!==editor){if(node.nodeType===Node.ELEMENT_NODE)tags.push(node.localName);node=node.parentElement}
  }
  const has=names=>names.some(name=>tags.includes(name));
- const commandTags={bold:['b','strong'],italic:['i','em'],underline:['u'],strikeThrough:['s','del'],subscript:['sub'],superscript:['sup']};
+ const commandTags={bold:['b','strong'],italic:['i','em'],underline:['u'],strikeThrough:['s','del','strike'],subscript:['sub'],superscript:['sup']};
  buttons.forEach(button=>{
   const cmd=button.dataset.cmd,insert=button.dataset.insert;let active=false;
   if(editorMode==='visual'&&cmd&&cmd!=='formatBlock'&&cmd!=='removeFormat'&&cmd!=='insertHorizontalRule'){
@@ -812,6 +841,7 @@ async function setImportedContent(promise){
   if(html===null||html===undefined)return;
   if(!String(html).trim())throw new Error('В источнике не найден текст.');
   editor.innerHTML=html;
+  void renderMathElements(editor);
   if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
   refreshCodeEditor();
   updateModeUI();
@@ -848,7 +878,7 @@ function currentDraft(){
  return {
   format:'telegram-publisher-draft',
   version:1,
-  html:editor.innerHTML,
+  html:serializeEditorContent(),
   mode:modeSelect.value,
   series:isSeriesMode(),
   profile_id:channelSelect.value||null
@@ -874,6 +904,7 @@ function applyDraft(draft){
   throw new Error('Файл не является поддерживаемым черновиком Telegram Publisher.');
  }
  editor.innerHTML=draft.html;
+ void renderMathElements(editor);
  refreshCodeEditor();
  modeSelect.value=draft.mode;
  seriesCheckbox.checked=draft.series;
@@ -933,6 +964,7 @@ function escapeInsertedText(value){
 function insertEditorMarkup(markup,caretInside=false){
  if(editorMode==='code'){insertCodeMarkup(markup,caretInside);return}
  restoreEditorSelection();document.execCommand('insertHTML',false,markup);rememberEditorSelection();
+ void renderMathElements(editor);
  updatePlainCompatibility();updateSeriesStatus();refreshCodeEditor();updateToolbarState();
 }
 function insertWrappedElement(tag,placeholder,attributes=''){
@@ -975,9 +1007,9 @@ function openCharacterPicker(kind){
  openInsertDialog(kind==='emoji'?'Выбор эмодзи':'Выбор символа',grid);
  document.getElementById('insert-dialog-confirm').onclick=()=>{if(chosen!==null){closeInsertDialog();insertEditorMarkup(chosen)}};
 }
-function openMathBuilder(){
+function openMathBuilder(existingFormula=null){
  const panel=document.createElement('div');
- const input=document.createElement('textarea');input.id='math-input';input.placeholder='Формула';input.value='x^2 + y^2 = z^2';
+ const input=document.createElement('textarea');input.id='math-input';input.placeholder='Формула';input.value=existingFormula?(existingFormula.getAttribute('data-latex')||existingFormula.textContent||''):'x^2 + y^2 = z^2';
  const tools=document.createElement('div');tools.className='math-tools';
  const snippets=[
   ['Дробь','\\frac{a}{b}'],['Корень','\\sqrt{x}'],['Степень','^{2}'],['Индекс','_{i}'],
@@ -995,24 +1027,47 @@ function openMathBuilder(){
  });
  const mode=document.createElement('div');mode.className='math-mode';
  mode.innerHTML='<label><input type="radio" name="math-display" value="inline" checked> В строке</label><label><input type="radio" name="math-display" value="block"> Отдельным блоком</label>';
+ if(existingFormula&&existingFormula.localName==='tg-math-block')mode.querySelector('input[value="block"]').checked=true;
+ const preview=document.createElement('div');preview.id='math-preview';preview.textContent='Предпросмотр формулы';
  const hint=document.createElement('div');hint.className='insert-hint';hint.textContent='Используйте кнопки для построения формулы. При необходимости выражение можно отредактировать вручную.';
- panel.append(tools,input,mode,hint);
+ panel.append(tools,input,mode,preview,hint);
  openInsertDialog('Конструктор формул',panel);
+ let previewRequest=0;
+ const updatePreview=async()=>{
+  const request=++previewRequest,value=input.value.trim(),display=mode.querySelector('input:checked').value;
+  preview.classList.remove('math-render-error');
+  if(!value){preview.textContent='Введите формулу для предпросмотра';return}
+  preview.textContent='Построение предпросмотра…';
+  try{
+   const markup=await window.pywebview.api.render_math(value,display);
+   if(request!==previewRequest)return;
+   preview.innerHTML=markup;
+  }catch(error){
+   if(request!==previewRequest)return;
+   preview.textContent='Не удалось отобразить формулу: '+(error&&error.message?error.message:String(error));
+   preview.classList.add('math-render-error');
+  }
+ };
+ input.addEventListener('input',updatePreview);mode.addEventListener('change',updatePreview);void updatePreview();
  document.getElementById('insert-dialog-confirm').onclick=()=>{
   const value=input.value.trim();if(!value)return;
-  const block=mode.querySelector('input:checked').value==='block';
+  const block=mode.querySelector('input:checked').value==='block',tag=block?'tg-math-block':'tg-math';
   closeInsertDialog();
-  insertEditorMarkup(block
-   ?'<tg-math-block>'+escapeInsertedText(value)+'</tg-math-block><p><br></p>'
-   :'<tg-math>'+escapeInsertedText(value)+'</tg-math>');
+  if(existingFormula){
+   const replacement=document.createElement(tag);replacement.setAttribute('data-latex',value);replacement.textContent=value;
+   existingFormula.replaceWith(replacement);void renderMathElements(editor);refreshCodeEditor();updateSeriesStatus();
+  }else{
+   const escaped=value.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+   insertEditorMarkup('<'+tag+' data-latex="'+escaped+'">'+escapeInsertedText(value)+'</'+tag+'>'+(block?'<p><br></p>':''));
+  }
  };
 }
 
 document.querySelectorAll('[data-insert]').forEach(button=>button.addEventListener('click',()=>{
  if(editorMode!=='code')restoreEditorSelection();
  const action=button.dataset.insert;
- if(action==='code'){insertWrappedElement('code','код');return}
- if(action==='spoiler'){insertWrappedElement('tg-spoiler','скрытый текст');return}
+ if(action==='code'){toggleInlineTag('code');return}
+ if(action==='spoiler'){toggleInlineTag('tg-spoiler');return}
  if(action==='pre'){
   const selectedText=selectedEditorText();insertEditorMarkup('<pre><code>'+(selectedText||'код')+'</code></pre><p><br></p>');return;
  }
@@ -1434,13 +1489,14 @@ function htmlParts(){
  return partNodes().map(nodes=>{
   const wrapper=document.createElement('div');
   for(const node of nodes)wrapper.appendChild(node.cloneNode(true));
-  return wrapper.innerHTML.trim();
+  return restoreMathSource(wrapper).innerHTML.trim();
  }).filter(part=>part.length>0);
 }
 function partLength(nodes){
  const wrapper=document.createElement('div');
  for(const node of nodes)wrapper.appendChild(node.cloneNode(true));
  wrapper.querySelectorAll('.series-break').forEach(node=>node.remove());
+ restoreMathSource(wrapper);
  return (wrapper.innerText||wrapper.textContent||'').trim().length;
 }
 function partMediaCount(nodes){
@@ -1678,6 +1734,10 @@ function insertBreakAtSelection(){
 }
 document.getElementById('insert-break').addEventListener('click',insertBreakAtSelection);
 editor.addEventListener('input',()=>{updatePlainCompatibility();updateSeriesStatus()});
+editor.addEventListener('dblclick',event=>{
+ const formula=event.target.closest('tg-math,tg-math-block');
+ if(formula&&editor.contains(formula)){event.preventDefault();openMathBuilder(formula)}
+});
 editor.addEventListener('keyup',updateTableTools);
 document.addEventListener('selectionchange',()=>{if(editorMode==='visual')updateTableTools()});
 modeSelect.addEventListener('change',()=>{
@@ -1714,6 +1774,7 @@ function currentResult(action){
   if(node.nodeType===1&&node.classList.contains('series-break'))continue;
   cleanEditor.appendChild(node.cloneNode(true));
  }
+ restoreMathSource(cleanEditor);
  return {action,html:cleanEditor.innerHTML,parts:series?htmlParts():[],profile_id:channelSelect.value||null,mode:modeSelect.value,series};
 }
 document.getElementById('publish').onclick=async()=>{

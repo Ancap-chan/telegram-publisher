@@ -9,8 +9,8 @@ import re
 import threading
 from pathlib import Path
 
-import webview
 from latex2mathml.converter import convert as convert_latex_to_mathml
+import webview
 from webview.window import Window
 
 from . import __version__

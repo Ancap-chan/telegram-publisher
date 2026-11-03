@@ -9,6 +9,7 @@ import re
 import threading
 from pathlib import Path
 
+from latex2mathml.converter import convert as convert_latex_to_mathml
 import webview
 from webview.window import Window
 
@@ -70,6 +71,12 @@ body.code-mode .edit-tools{display:flex}
 .insert-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
 .insert-tabs button[aria-pressed=true]{background:#245eb5;color:#fff;border-color:#245eb5}
 #math-input{width:100%;min-height:72px;padding:10px;border:1px solid #c9cfd7;border-radius:6px;font:16px Consolas,monospace;resize:vertical}
+#math-preview{min-height:76px;display:flex;align-items:center;justify-content:center;overflow:auto;padding:16px;border:1px solid #d8dde4;border-radius:6px;background:#f8f9fb;font-size:18px}
+#math-preview math{max-width:100%;font-size:1.15em}
+#editor tg-math{display:inline-block;vertical-align:middle;padding:0 2px}
+#editor tg-math-block{display:block;text-align:center;margin:14px 0;padding:8px}
+#editor tg-math math{font-size:1.1em}
+#editor tg-math.math-render-error,#math-preview.math-render-error{color:#a32020;background:#fff0f0}
 .math-tools{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
 .math-tools button{min-width:42px}
 .math-mode{display:flex;gap:16px;align-items:center;margin-top:12px}
@@ -376,16 +383,36 @@ function setCodeValue(markup,format=true){
 const visualModeButton=document.getElementById('visual-mode');
 const codeModeButton=document.getElementById('code-mode');
 const SERIES_BREAK_COMMENT='telegram-publisher:series-break';
+function restoreMathSource(root){
+ root.querySelectorAll('tg-math,tg-math-block').forEach(node=>{
+  const latex=node.getAttribute('data-latex')??node.textContent??'';
+  const source=document.createElement(node.localName);source.textContent=latex;node.replaceWith(source);
+ });
+ return root;
+}
+function serializeEditorContent(root=editor){return restoreMathSource(root.cloneNode(true)).innerHTML}
+async function renderMathElements(root=editor){
+ for(const formula of root.querySelectorAll('tg-math,tg-math-block')){
+  const latex=formula.getAttribute('data-latex')??formula.textContent??'';if(!latex.trim())continue;
+  formula.setAttribute('data-latex',latex);formula.setAttribute('contenteditable','false');
+  try{
+   const mathml=await window.pywebview.api.render_math(latex,formula.localName==='tg-math-block'?'block':'inline');
+   if(!formula.isConnected)continue;
+   formula.innerHTML=mathml;formula.classList.remove('math-render-error');formula.removeAttribute('title');
+  }catch(error){
+   if(!formula.isConnected)continue;
+   formula.textContent=latex;formula.classList.add('math-render-error');
+   formula.title='Не удалось отобразить формулу: '+(error&&error.message?error.message:String(error));
+  }
+ }
+}
 function serializeEditorForCode(){
  const wrapper=document.createElement('div');
  for(const node of Array.from(editor.childNodes)){
-  if(node.nodeType===Node.ELEMENT_NODE&&node.classList.contains('series-break')){
-   wrapper.appendChild(document.createComment(SERIES_BREAK_COMMENT));
-  }else{
-   wrapper.appendChild(node.cloneNode(true));
-  }
+  if(node.nodeType===Node.ELEMENT_NODE&&node.classList.contains('series-break'))wrapper.appendChild(document.createComment(SERIES_BREAK_COMMENT));
+  else wrapper.appendChild(node.cloneNode(true));
  }
- return wrapper.innerHTML;
+ return restoreMathSource(wrapper).innerHTML;
 }
 function commitCodeToVisual(){
  if(editorMode!=='code')return;
@@ -401,6 +428,7 @@ function commitCodeToVisual(){
  editor.replaceChildren(template.content.cloneNode(true));
  selectedBreak=null;
  updateModeUI();
+ void renderMathElements(editor);
 }
 function refreshCodeEditor(){
  if(editorMode==='code')setCodeValue(serializeEditorForCode());
@@ -482,6 +510,7 @@ let config={profiles:[],selected_profile_id:null,mode:'rich',series:false,status
 function applyConfig(value){
  config=value||config;
  editor.innerHTML=window.initialContent||'';
+ void renderMathElements(editor);
  refreshCodeEditor();
  channelSelect.replaceChildren();
  for(const profile of (config.profiles||[])){
@@ -524,7 +553,7 @@ function updateToolbarState(){
   while(node&&node!==editor){if(node.nodeType===Node.ELEMENT_NODE)tags.push(node.localName);node=node.parentElement}
  }
  const has=names=>names.some(name=>tags.includes(name));
- const commandTags={bold:['b','strong'],italic:['i','em'],underline:['u'],strikeThrough:['s','del'],subscript:['sub'],superscript:['sup']};
+ const commandTags={bold:['b','strong'],italic:['i','em'],underline:['u'],strikeThrough:['s','del','strike'],subscript:['sub'],superscript:['sup']};
  buttons.forEach(button=>{
   const cmd=button.dataset.cmd,insert=button.dataset.insert;let active=false;
   if(editorMode==='visual'&&cmd&&cmd!=='formatBlock'&&cmd!=='removeFormat'&&cmd!=='insertHorizontalRule'){
@@ -812,6 +841,7 @@ async function setImportedContent(promise){
   if(html===null||html===undefined)return;
   if(!String(html).trim())throw new Error('В источнике не найден текст.');
   editor.innerHTML=html;
+  void renderMathElements(editor);
   if(modeSelect.value.endsWith('_series'))autoPlaceBreaks();
   refreshCodeEditor();
   updateModeUI();
@@ -848,7 +878,7 @@ function currentDraft(){
  return {
   format:'telegram-publisher-draft',
   version:1,
-  html:editor.innerHTML,
+  html:serializeEditorContent(),
   mode:modeSelect.value,
   series:isSeriesMode(),
   profile_id:channelSelect.value||null
@@ -874,6 +904,7 @@ function applyDraft(draft){
   throw new Error('Файл не является поддерживаемым черновиком Telegram Publisher.');
  }
  editor.innerHTML=draft.html;
+ void renderMathElements(editor);
  refreshCodeEditor();
  modeSelect.value=draft.mode;
  seriesCheckbox.checked=draft.series;
@@ -904,26 +935,125 @@ function selectedEditorText(){
  if(editorMode==='code')return codeEditor.value.slice(codeEditor.selectionStart,codeEditor.selectionEnd);
  const selection=window.getSelection();return selection&&!selection.isCollapsed?selection.toString():'';
 }
+const INLINE_COMMAND_TAGS={bold:'b',italic:'i',underline:'u',strikeThrough:'s',subscript:'sub',superscript:'sup'};
+const INLINE_TAG_ALIASES={b:['b','strong'],i:['i','em'],s:['s','del','strike'],u:['u'],sub:['sub'],sup:['sup'],code:['code'],'tg-spoiler':['tg-spoiler']};
+const INLINE_FORMAT_TAGS=['a','b','strong','i','em','u','s','strike','del','sub','sup','code','tg-spoiler','span','mark'];
+function inlineAncestor(node,tags=INLINE_FORMAT_TAGS){
+ let element=node&&node.nodeType===Node.TEXT_NODE?node.parentElement:node;
+ while(element&&element!==editor){if(element.nodeType===Node.ELEMENT_NODE&&tags.includes(element.localName))return element;element=element.parentElement}
+ return null;
+}
+function unwrapElement(element){
+ const parent=element.parentNode;if(!parent)return;
+ while(element.firstChild)parent.insertBefore(element.firstChild,element);
+ element.remove();
+}
+function unwrapInlineElements(root){root.querySelectorAll(INLINE_FORMAT_TAGS.join(',')).forEach(unwrapElement)}
+function selectInsertedFragment(selection,range,fragment){
+ const first=fragment.firstChild,last=fragment.lastChild;
+ range.insertNode(fragment);
+ if(first&&last){const selected=document.createRange();selected.setStartBefore(first);selected.setEndAfter(last);selection.removeAllRanges();selection.addRange(selected)}
+}
+function applyVisualInlineTag(tag){
+ const selection=window.getSelection();if(!selection||!selection.rangeCount)return;
+ const range=selection.getRangeAt(0);if(!editor.contains(range.commonAncestorContainer))return;
+ const aliases=INLINE_TAG_ALIASES[tag]||[tag];
+ const startAncestor=inlineAncestor(range.startContainer,aliases),endAncestor=inlineAncestor(range.endContainer,aliases);
+ if(startAncestor&&startAncestor===endAncestor){unwrapElement(startAncestor)}
+ else{
+  const wrapper=document.createElement(tag);
+  if(range.collapsed){range.insertNode(wrapper);range.selectNodeContents(wrapper);selection.removeAllRanges();selection.addRange(range)}
+  else{const fragment=range.extractContents();wrapper.appendChild(fragment);range.insertNode(wrapper);range.selectNodeContents(wrapper);selection.removeAllRanges();selection.addRange(range)}
+ }
+ rememberEditorSelection();refreshCodeEditor();updatePlainCompatibility();updateSeriesStatus();updateToolbarState();
+}
+function findEnclosingInlineTagPair(source,start,end,tags){
+ const stack=[],pairs=[],tokenPattern=/<!--[\s\S]*?-->|<\/?([a-z][a-z0-9:-]*)[^>]*>/gi;
+ const voidTags=new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
+ let match;
+ while((match=tokenPattern.exec(source))){
+  if(match[0].startsWith('<!--'))continue;
+  const tag=match[1].toLowerCase(),closing=match[0][1]==='/';
+  if(closing){
+   let index=stack.length-1;while(index>=0&&stack[index].tag!==tag)index--;
+   if(index>=0){const opening=stack[index];stack.splice(index,1);if(tags.includes(tag))pairs.push({tag,openStart:opening.start,openEnd:opening.end,closeStart:match.index,closeEnd:tokenPattern.lastIndex})}
+  }else if(!voidTags.has(tag)&&!match[0].endsWith('/>'))stack.push({tag,start:match.index,end:tokenPattern.lastIndex});
+ }
+ return pairs.filter(pair=>pair.openEnd<=start&&pair.closeStart>=end).sort((a,b)=>(a.closeEnd-a.openStart)-(b.closeEnd-b.openStart))[0]||null;
+}
+function unwrapSelectedCodeTag(selected,tag){
+ const leading=(selected.match(/^\s*/)||[''])[0],trailing=(selected.match(/\s*$/)||[''])[0];
+ const core=selected.slice(leading.length,selected.length-trailing.length||undefined);
+ const holder=document.createElement('div');holder.innerHTML=core;
+ if(holder.childNodes.length!==1||holder.firstChild.nodeType!==Node.ELEMENT_NODE||holder.firstChild.localName!==tag)return null;
+ const inner=holder.firstChild.innerHTML;
+ return {html:leading+inner+trailing,start:leading.length,end:leading.length+inner.length};
+}
+function toggleCodeInlineTag(tag){
+ const source=codeEditor.value,start=codeEditor.selectionStart,end=codeEditor.selectionEnd,selected=source.slice(start,end);
+ let selectedWrapper=null;
+ if(selected){for(const alias of INLINE_TAG_ALIASES[tag]||[tag]){selectedWrapper=unwrapSelectedCodeTag(selected,alias);if(selectedWrapper)break}}
+ if(selectedWrapper){
+  codeEditor.value=source.slice(0,start)+selectedWrapper.html+source.slice(end);
+  codeEditor.setSelectionRange(start+selectedWrapper.start,start+selectedWrapper.end);
+ }else{
+  const pair=findEnclosingInlineTagPair(source,start,end,INLINE_TAG_ALIASES[tag]||[tag]);
+  if(pair){
+   const updated=source.slice(0,pair.openStart)+source.slice(pair.openEnd,pair.closeStart)+source.slice(pair.closeEnd);
+   const nextStart=start-(pair.openEnd-pair.openStart),nextEnd=end-(pair.openEnd-pair.openStart);
+   codeEditor.value=updated;codeEditor.setSelectionRange(nextStart,nextEnd);
+  }else{
+   const opening='<'+tag+'>',closing='</'+tag+'>';
+   codeEditor.value=source.slice(0,start)+opening+selected+closing+source.slice(end);
+   codeEditor.setSelectionRange(start+opening.length,start+opening.length+selected.length);
+  }
+ }
+ highlightHtmlCode();resizeCodeEditor();updateToolbarState();
+}
+function toggleInlineTag(tag){if(editorMode==='code'){toggleCodeInlineTag(tag);return}applyVisualInlineTag(tag)}
+function clearCodeFormatting(){
+ const source=codeEditor.value;let start=codeEditor.selectionStart,end=codeEditor.selectionEnd;
+ if(start===end)return;
+ let updated=source;
+ for(let attempt=0;attempt<INLINE_FORMAT_TAGS.length;attempt++){
+  const pair=findEnclosingInlineTagPair(updated,start,end,INLINE_FORMAT_TAGS);
+  if(!pair)break;
+  updated=updated.slice(0,pair.openStart)+updated.slice(pair.openEnd,pair.closeStart)+updated.slice(pair.closeEnd);
+  start-=pair.openEnd-pair.openStart;end-=pair.openEnd-pair.openStart;
+ }
+ const holder=document.createElement('div');holder.innerHTML=updated.slice(start,end);unwrapInlineElements(holder);
+ const replacement=holder.innerHTML;
+ codeEditor.value=updated.slice(0,start)+replacement+updated.slice(end);
+ codeEditor.setSelectionRange(start,start+replacement.length);
+ highlightHtmlCode();resizeCodeEditor();updateToolbarState();
+}
+function clearVisualFormatting(){
+ const selection=window.getSelection();if(!selection||!selection.rangeCount||selection.isCollapsed)return;
+ const range=selection.getRangeAt(0);if(!editor.contains(range.commonAncestorContainer))return;
+ let startAncestor=inlineAncestor(range.startContainer),endAncestor=inlineAncestor(range.endContainer);
+ while(startAncestor&&startAncestor===endAncestor){
+  unwrapElement(startAncestor);startAncestor=inlineAncestor(range.startContainer);endAncestor=inlineAncestor(range.endContainer);
+ }
+ const fragment=range.extractContents();unwrapInlineElements(fragment);selectInsertedFragment(selection,range,fragment);
+ rememberEditorSelection();refreshCodeEditor();updatePlainCompatibility();updateSeriesStatus();updateToolbarState();
+}
 function applyCodeCommand(button){
  const command=button.dataset.cmd,selected=selectedEditorText(),wrap=(open,close)=>insertCodeMarkup(open+selected+close,!selected);
+ if(INLINE_COMMAND_TAGS[command]){toggleCodeInlineTag(INLINE_COMMAND_TAGS[command]);return}
  if(command==='formatBlock'){const tag=(button.dataset.value||'p').toLowerCase();wrap('<'+tag+'>','</'+tag+'>');return}
- const tags={bold:['<strong>','</strong>'],italic:['<em>','</em>'],underline:['<u>','</u>'],strikeThrough:['<s>','</s>'],subscript:['<sub>','</sub>'],superscript:['<sup>','</sup>']};
- if(tags[command]){wrap(tags[command][0],tags[command][1]);return}
  if(command==='insertUnorderedList'||command==='insertOrderedList'){
   const tag=command==='insertUnorderedList'?'ul':'ol';
   const items=(selected||'Пункт списка').split(/\r?\n/).map(item=>'<li>'+item+'</li>').join('');
   insertCodeMarkup('<'+tag+'>'+items+'</'+tag+'>',!selected);return;
  }
  if(command==='insertHorizontalRule'){insertCodeMarkup('<hr>');return}
- if(command==='removeFormat'){
-  const holder=document.createElement('div');holder.innerHTML=selected;
-  holder.querySelectorAll('strong,b,em,i,u,s,del,strike,sub,sup,code,span').forEach(node=>node.replaceWith(...node.childNodes));
-  insertCodeMarkup(holder.innerHTML);
- }
+ if(command==='removeFormat')clearCodeFormatting();
 }
 document.querySelectorAll('[data-cmd]').forEach(button=>button.addEventListener('click',()=>{
  if(editorMode==='code'){applyCodeCommand(button);return}
  restoreEditorSelection();const cmd=button.dataset.cmd;
+ if(INLINE_COMMAND_TAGS[cmd]){applyVisualInlineTag(INLINE_COMMAND_TAGS[cmd]);return}
+ if(cmd==='removeFormat'){clearVisualFormatting();return}
  document.execCommand(cmd,false,button.dataset.value||null);
  rememberEditorSelection();updatePlainCompatibility();updateSeriesStatus();updateToolbarState();
 }));
@@ -933,6 +1063,7 @@ function escapeInsertedText(value){
 function insertEditorMarkup(markup,caretInside=false){
  if(editorMode==='code'){insertCodeMarkup(markup,caretInside);return}
  restoreEditorSelection();document.execCommand('insertHTML',false,markup);rememberEditorSelection();
+ void renderMathElements(editor);
  updatePlainCompatibility();updateSeriesStatus();refreshCodeEditor();updateToolbarState();
 }
 function insertWrappedElement(tag,placeholder,attributes=''){
@@ -975,9 +1106,9 @@ function openCharacterPicker(kind){
  openInsertDialog(kind==='emoji'?'Выбор эмодзи':'Выбор символа',grid);
  document.getElementById('insert-dialog-confirm').onclick=()=>{if(chosen!==null){closeInsertDialog();insertEditorMarkup(chosen)}};
 }
-function openMathBuilder(){
+function openMathBuilder(existingFormula=null){
  const panel=document.createElement('div');
- const input=document.createElement('textarea');input.id='math-input';input.placeholder='Формула';input.value='x^2 + y^2 = z^2';
+ const input=document.createElement('textarea');input.id='math-input';input.placeholder='Формула';input.value=existingFormula?(existingFormula.getAttribute('data-latex')||existingFormula.textContent||''):'x^2 + y^2 = z^2';
  const tools=document.createElement('div');tools.className='math-tools';
  const snippets=[
   ['Дробь','\\frac{a}{b}'],['Корень','\\sqrt{x}'],['Степень','^{2}'],['Индекс','_{i}'],
@@ -995,24 +1126,47 @@ function openMathBuilder(){
  });
  const mode=document.createElement('div');mode.className='math-mode';
  mode.innerHTML='<label><input type="radio" name="math-display" value="inline" checked> В строке</label><label><input type="radio" name="math-display" value="block"> Отдельным блоком</label>';
+ if(existingFormula&&existingFormula.localName==='tg-math-block')mode.querySelector('input[value="block"]').checked=true;
+ const preview=document.createElement('div');preview.id='math-preview';preview.textContent='Предпросмотр формулы';
  const hint=document.createElement('div');hint.className='insert-hint';hint.textContent='Используйте кнопки для построения формулы. При необходимости выражение можно отредактировать вручную.';
- panel.append(tools,input,mode,hint);
+ panel.append(tools,input,mode,preview,hint);
  openInsertDialog('Конструктор формул',panel);
+ let previewRequest=0;
+ const updatePreview=async()=>{
+  const request=++previewRequest,value=input.value.trim(),display=mode.querySelector('input:checked').value;
+  preview.classList.remove('math-render-error');
+  if(!value){preview.textContent='Введите формулу для предпросмотра';return}
+  preview.textContent='Построение предпросмотра…';
+  try{
+   const markup=await window.pywebview.api.render_math(value,display);
+   if(request!==previewRequest)return;
+   preview.innerHTML=markup;
+  }catch(error){
+   if(request!==previewRequest)return;
+   preview.textContent='Не удалось отобразить формулу: '+(error&&error.message?error.message:String(error));
+   preview.classList.add('math-render-error');
+  }
+ };
+ input.addEventListener('input',updatePreview);mode.addEventListener('change',updatePreview);void updatePreview();
  document.getElementById('insert-dialog-confirm').onclick=()=>{
   const value=input.value.trim();if(!value)return;
-  const block=mode.querySelector('input:checked').value==='block';
+  const block=mode.querySelector('input:checked').value==='block',tag=block?'tg-math-block':'tg-math';
   closeInsertDialog();
-  insertEditorMarkup(block
-   ?'<tg-math-block>'+escapeInsertedText(value)+'</tg-math-block><p><br></p>'
-   :'<tg-math>'+escapeInsertedText(value)+'</tg-math>');
+  if(existingFormula){
+   const replacement=document.createElement(tag);replacement.setAttribute('data-latex',value);replacement.textContent=value;
+   existingFormula.replaceWith(replacement);void renderMathElements(editor);refreshCodeEditor();updateSeriesStatus();
+  }else{
+   const escaped=value.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+   insertEditorMarkup('<'+tag+' data-latex="'+escaped+'">'+escapeInsertedText(value)+'</'+tag+'>'+(block?'<p><br></p>':''));
+  }
  };
 }
 
 document.querySelectorAll('[data-insert]').forEach(button=>button.addEventListener('click',()=>{
  if(editorMode!=='code')restoreEditorSelection();
  const action=button.dataset.insert;
- if(action==='code'){insertWrappedElement('code','код');return}
- if(action==='spoiler'){insertWrappedElement('tg-spoiler','скрытый текст');return}
+ if(action==='code'){toggleInlineTag('code');return}
+ if(action==='spoiler'){toggleInlineTag('tg-spoiler');return}
  if(action==='pre'){
   const selectedText=selectedEditorText();insertEditorMarkup('<pre><code>'+(selectedText||'код')+'</code></pre><p><br></p>');return;
  }
@@ -1434,13 +1588,14 @@ function htmlParts(){
  return partNodes().map(nodes=>{
   const wrapper=document.createElement('div');
   for(const node of nodes)wrapper.appendChild(node.cloneNode(true));
-  return wrapper.innerHTML.trim();
+  return restoreMathSource(wrapper).innerHTML.trim();
  }).filter(part=>part.length>0);
 }
 function partLength(nodes){
  const wrapper=document.createElement('div');
  for(const node of nodes)wrapper.appendChild(node.cloneNode(true));
  wrapper.querySelectorAll('.series-break').forEach(node=>node.remove());
+ restoreMathSource(wrapper);
  return (wrapper.innerText||wrapper.textContent||'').trim().length;
 }
 function partMediaCount(nodes){
@@ -1678,6 +1833,10 @@ function insertBreakAtSelection(){
 }
 document.getElementById('insert-break').addEventListener('click',insertBreakAtSelection);
 editor.addEventListener('input',()=>{updatePlainCompatibility();updateSeriesStatus()});
+editor.addEventListener('dblclick',event=>{
+ const formula=event.target.closest('tg-math,tg-math-block');
+ if(formula&&editor.contains(formula)){event.preventDefault();openMathBuilder(formula)}
+});
 editor.addEventListener('keyup',updateTableTools);
 document.addEventListener('selectionchange',()=>{if(editorMode==='visual')updateTableTools()});
 modeSelect.addEventListener('change',()=>{
@@ -1714,6 +1873,7 @@ function currentResult(action){
   if(node.nodeType===1&&node.classList.contains('series-break'))continue;
   cleanEditor.appendChild(node.cloneNode(true));
  }
+ restoreMathSource(cleanEditor);
  return {action,html:cleanEditor.innerHTML,parts:series?htmlParts():[],profile_id:channelSelect.value||null,mode:modeSelect.value,series};
 }
 document.getElementById('publish').onclick=async()=>{
@@ -2192,6 +2352,20 @@ class EditorApi:
             encoding="utf-8",
         )
         return str(destination)
+
+    def render_math(self, latex: str, display: str = "inline") -> str:
+        """Преобразовать формулу LaTeX в MathML для предпросмотра редактора."""
+        value = str(latex).strip()
+        if not value:
+            raise ValueError("Введите математическую формулу.")
+        if len(value) > 10_000:
+            raise ValueError("Формула слишком длинная: максимум 10 000 символов.")
+        if display not in {"inline", "block"}:
+            raise ValueError("Неизвестный режим отображения формулы.")
+        try:
+            return convert_latex_to_mathml(value, display=display)
+        except Exception as error:
+            raise ValueError(f"Не удалось преобразовать формулу LaTeX: {error}") from error
 
     def select_media_files(self) -> list[dict[str, str]]:
         """Выбрать локальные изображения и видео для совместимых способов публикации."""

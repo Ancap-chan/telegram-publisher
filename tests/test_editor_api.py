@@ -240,3 +240,29 @@ def test_editor_api_rejects_retry_without_pending_messages(tmp_path):
 
     with pytest.raises(ValueError, match="Нет сообщений"):
         api.retry_pending()
+
+
+@pytest.mark.parametrize("display", ["inline", "block"])
+def test_editor_api_renders_latex_as_mathml(display):
+    api = EditorApi(FakeWindow())
+
+    result = api.render_math(r"\\frac{a}{b}", display)
+
+    assert result.startswith("<math")
+    assert f'display="{display}"' in result
+    assert "<mfrac>" in result
+
+
+@pytest.mark.parametrize(
+    ("latex", "display", "message"),
+    [
+        ("   ", "inline", "Введите математическую формулу"),
+        ("x", "unknown", "Неизвестный режим отображения"),
+        ("x" * 10_001, "inline", "Формула слишком длинная"),
+    ],
+)
+def test_editor_api_validates_math_preview_arguments(latex, display, message):
+    api = EditorApi(FakeWindow())
+
+    with pytest.raises(ValueError, match=message):
+        api.render_math(latex, display)

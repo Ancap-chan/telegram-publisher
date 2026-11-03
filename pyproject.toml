@@ -18,6 +18,7 @@ dependencies = [
     "python-docx>=1.1,<2",
     "odfpy>=1.4,<2",
     "charset-normalizer>=3.3,<4",
+    "latex2mathml>=3.81.1,<4",
 ]
 
 [project.optional-dependencies]

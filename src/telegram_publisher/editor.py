@@ -181,13 +181,11 @@ button:disabled{opacity:.55;cursor:default}
  <button type="button" id="table-delete-row" title="Удалить текущую строку">− Строка</button>
  <button type="button" id="table-add-column" title="Добавить столбец после текущего">+ Столбец</button>
  <button type="button" id="table-delete-column" title="Удалить текущий столбец">− Столбец</button>
- <button type="button" id="table-merge" title="Объединить выделенные ячейки" disabled>Объединить</button>
+ <button type="button" id="table-group" title="Сгруппировать выделенные ячейки" disabled>Сгруппировать</button>
+ <button type="button" id="table-ungroup" title="Разгруппировать ячейку" disabled>Разгруппировать</button>
  <button type="button" id="table-header-row" title="Переключить заголовочную строку">Заголовочная строка</button>
  <label>Горизонтально <select id="table-cell-align"><option value="left">Слева</option><option value="center">По центру</option><option value="right">Справа</option></select></label>
  <label>Вертикально <select id="table-cell-valign"><option value="top">Сверху</option><option value="middle">По центру</option><option value="bottom">Снизу</option></select></label>
- <label>Столбцов в ячейке <input id="table-cell-colspan" type="number" min="1" max="20" value="1"></label>
- <label>Строк в ячейке <input id="table-cell-rowspan" type="number" min="1" max="500" value="1"></label>
- <button type="button" id="table-cell-spans" title="Применить размер ячейки">Размер ячейки</button>
  <button type="button" id="table-properties" title="Свойства таблицы" disabled>Свойства таблицы</button>
 </div>
 </header>
@@ -407,30 +405,23 @@ function commitCodeToVisual(){
 function refreshCodeEditor(){
  if(editorMode==='code')setCodeValue(serializeEditorForCode());
 }
-function visualTextOffset(){
- const selection=window.getSelection();
- if(!selection||!selection.rangeCount||!editor.contains(selection.focusNode))return 0;
- const range=document.createRange();range.selectNodeContents(editor);
- try{range.setEnd(selection.focusNode,selection.focusOffset)}catch(_error){return 0}
- return range.toString().length;
+function visualTextOffsetAt(container,offset){
+ if(!container||!(container===editor||editor.contains(container)))return 0;
+ const range=document.createRange();range.selectNodeContents(editor);try{range.setEnd(container,offset)}catch(_error){return 0}
+ const fragment=range.cloneContents();fragment.querySelectorAll('.series-break').forEach(node=>node.remove());return fragment.textContent.length;
 }
-function setVisualTextOffset(offset){
- const walker=document.createTreeWalker(editor,NodeFilter.SHOW_TEXT);
+function visualSelectionOffsets(){
+ const selection=window.getSelection();if(!selection||!selection.rangeCount||!editor.contains(selection.focusNode))return {start:0,end:0};
+ const range=selection.getRangeAt(0);return {start:visualTextOffsetAt(range.startContainer,range.startOffset),end:visualTextOffsetAt(range.endContainer,range.endOffset)};
+}
+function visualBoundaryAt(offset){
+ const walker=document.createTreeWalker(editor,NodeFilter.SHOW_TEXT,{acceptNode(node){return node.parentElement&&node.parentElement.closest('.series-break')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT}});
  let remaining=Math.max(0,offset),node,last=null;
- while((node=walker.nextNode())){
-  last=node;
-  if(remaining<=node.nodeValue.length){
-   const range=document.createRange();
-   range.setStart(node,remaining);range.collapse(true);
-   const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
-   return;
-  }
-  remaining-=node.nodeValue.length;
- }
- const range=document.createRange();
- if(last)range.setStart(last,last.nodeValue.length);
- else range.selectNodeContents(editor);
- range.collapse(true);
+ while((node=walker.nextNode())){last=node;if(remaining<=node.nodeValue.length)return {node,offset:remaining};remaining-=node.nodeValue.length}
+ return last?{node:last,offset:last.nodeValue.length}:{node:editor,offset:0};
+}
+function setVisualTextRange(start,end){
+ const a=visualBoundaryAt(start),b=visualBoundaryAt(end),range=document.createRange();range.setStart(a.node,a.offset);range.setEnd(b.node,b.offset);
  const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
 }
 function isFormattingWhitespace(source,index){
@@ -468,30 +459,13 @@ function textOffsetToHtmlOffset(markup,textOffset){
 function setEditorMode(nextMode){
  if(nextMode===editorMode)return;
  if(nextMode==='code'){
-  const offset=visualTextOffset();
-  const markup=serializeEditorForCode();
-  setCodeValue(markup);
-  editorMode='code';
-  document.body.classList.add('code-mode');
-  resizeCodeEditor();
-  visualModeButton.setAttribute('aria-pressed','false');
-  codeModeButton.setAttribute('aria-pressed','true');
-  codeEditor.focus();
-  const codeOffset=textOffsetToHtmlOffset(codeEditor.value,offset);
-  codeEditor.setSelectionRange(codeOffset,codeOffset);
-  updateToolbarState();
-  return;
+  const offsets=visualSelectionOffsets(),markup=serializeEditorForCode();setCodeValue(markup);editorMode='code';
+  document.body.classList.add('code-mode');resizeCodeEditor();visualModeButton.setAttribute('aria-pressed','false');codeModeButton.setAttribute('aria-pressed','true');codeEditor.focus();
+  codeEditor.setSelectionRange(textOffsetToHtmlOffset(codeEditor.value,offsets.start),textOffsetToHtmlOffset(codeEditor.value,offsets.end));updateToolbarState();return;
  }
- const offset=htmlOffsetToTextOffset(codeEditor.value,codeEditor.selectionStart);
- commitCodeToVisual();
- editorMode='visual';
- document.body.classList.remove('code-mode');
- visualModeButton.setAttribute('aria-pressed','true');
- codeModeButton.setAttribute('aria-pressed','false');
- editor.focus();
- setVisualTextOffset(offset);
- rememberEditorSelection();
- updateToolbarState();
+ const start=htmlOffsetToTextOffset(codeEditor.value,codeEditor.selectionStart),end=htmlOffsetToTextOffset(codeEditor.value,codeEditor.selectionEnd);
+ commitCodeToVisual();editorMode='visual';document.body.classList.remove('code-mode');visualModeButton.setAttribute('aria-pressed','true');codeModeButton.setAttribute('aria-pressed','false');editor.focus();
+ setVisualTextRange(start,end);rememberEditorSelection();updateToolbarState();
 }
 codeEditor.addEventListener('input',()=>{highlightHtmlCode();resizeCodeEditor();updateToolbarState();});
 codeEditor.addEventListener('keyup',updateToolbarState);
@@ -1193,11 +1167,10 @@ function updateTableTools(){
  tableTools.hidden=!activeTable;
  document.getElementById('table-properties').disabled=!activeTable;
  if(!activeTable){clearTableCellSelection();return}
- document.getElementById('table-merge').disabled=selectedTableCells.length<2;
+ document.getElementById('table-group').disabled=selectedTableCells.length<2;
+ document.getElementById('table-ungroup').disabled=!activeTableCell||(activeTableCell.colSpan<=1&&activeTableCell.rowSpan<=1);
  document.getElementById('table-cell-align').value=activeTableCell.getAttribute('align')||'left';
  document.getElementById('table-cell-valign').value=activeTableCell.getAttribute('valign')||'middle';
- document.getElementById('table-cell-colspan').value=activeTableCell.colSpan||1;
- document.getElementById('table-cell-rowspan').value=activeTableCell.rowSpan||1;
 }
 function buildTableForm(table=null){
  const form=document.createElement('div');form.className='table-form';
@@ -1330,14 +1303,22 @@ function toggleHeaderRow(){
  });
  refreshCodeEditor();updateTableTools();
 }
-function applyCellSpans(){
- const cell=currentTableCell();if(!cell)return;
- const colspan=Math.max(1,Math.min(20,Number(document.getElementById('table-cell-colspan').value)||1));
- const rowspan=Math.max(1,Math.min(500,Number(document.getElementById('table-cell-rowspan').value)||1));
- cell.colSpan=colspan;cell.rowSpan=rowspan;
- if(colspan===1)cell.removeAttribute('colspan');
- if(rowspan===1)cell.removeAttribute('rowspan');
- refreshCodeEditor();updateTableTools();
+function unmergeTableCell(){
+ const cell=currentTableCell();if(!cell||(cell.colSpan<=1&&cell.rowSpan<=1))return;
+ const table=cell.closest('table'),position=tableCellPosition(cell),grid=tableGrid(table);
+ const width=cell.colSpan,height=cell.rowSpan,tag=cell.tagName.toLowerCase();
+ for(let r=position.row;r<Math.min(table.rows.length,position.row+height);r++){
+  const row=table.rows[r];
+  for(let c=position.column;c<position.column+width;c++){
+   if(r===position.row&&c===position.column)continue;
+   const created=document.createElement(tag);created.innerHTML='<br>';
+   created.setAttribute('align',cell.getAttribute('align')||'left');created.setAttribute('valign',cell.getAttribute('valign')||'middle');
+   const target=grid[r]&&grid[r][position.column+width];
+   if(target&&target.parentElement===row)row.insertBefore(created,target);else row.append(created);
+  }
+ }
+ cell.colSpan=1;cell.rowSpan=1;cell.removeAttribute('colspan');cell.removeAttribute('rowspan');
+ clearTableCellSelection();activeTableCell=cell;activeTable=table;refreshCodeEditor();updateTableTools();focusTableCell(cell);
 }
 function mergeTableCells(){
  const cells=selectedTableCells.slice();if(cells.length<2)return;
@@ -1367,30 +1348,32 @@ document.getElementById('table-add-row').onclick=addTableRow;
 document.getElementById('table-delete-row').onclick=deleteTableRow;
 document.getElementById('table-add-column').onclick=addTableColumn;
 document.getElementById('table-delete-column').onclick=deleteTableColumn;
-document.getElementById('table-merge').onclick=mergeTableCells;
 document.getElementById('table-header-row').onclick=toggleHeaderRow;
 document.getElementById('table-cell-align').onchange=event=>applyCellAlignment('align',event.target.value);
 document.getElementById('table-cell-valign').onchange=event=>applyCellAlignment('valign',event.target.value);
-document.getElementById('table-cell-spans').onclick=applyCellSpans;
+document.getElementById('table-group').onclick=mergeTableCells;
+document.getElementById('table-ungroup').onclick=unmergeTableCell;
 let tableSelectionAnchor=null,tablePointerSelecting=false;
 function setActiveTableCell(cell){if(!cell||!editor.contains(cell))return;activeTableCell=cell;activeTable=cell.closest('table');updateTableTools()}
 function selectTableRangeTo(cell){
  if(!tableSelectionAnchor||!cell||tableSelectionAnchor.closest('table')!==cell.closest('table'))return;
  selectTableRectangle(tableSelectionAnchor,cell);activeTableCell=cell;activeTable=cell.closest('table');
- document.getElementById('table-merge').disabled=selectedTableCells.length<2;
+ document.getElementById('table-group').disabled=selectedTableCells.length<2;
 }
+let tablePointerStart=null,tableDragRange=false;
 editor.addEventListener('pointerdown',event=>{
  const cell=event.target.closest('td,th');
- if(!cell||!editor.contains(cell)){tableSelectionAnchor=null;tablePointerSelecting=false;return}
+ if(!cell||!editor.contains(cell)){tableSelectionAnchor=null;tablePointerSelecting=false;tablePointerStart=null;return}
  if(event.button!==0)return;
- if(event.shiftKey&&tableSelectionAnchor&&tableSelectionAnchor.closest('table')===cell.closest('table')){selectTableRangeTo(cell);tablePointerSelecting=true}
- else{clearTableCellSelection();tableSelectionAnchor=cell;tablePointerSelecting=true;setActiveTableCell(cell)}
+ if(event.shiftKey&&tableSelectionAnchor&&tableSelectionAnchor.closest('table')===cell.closest('table')){selectTableRangeTo(cell);tablePointerSelecting=true;tableDragRange=true;event.preventDefault();return}
+ clearTableCellSelection();tableSelectionAnchor=cell;tablePointerSelecting=true;tableDragRange=false;tablePointerStart={x:event.clientX,y:event.clientY};
 });
-editor.addEventListener('pointerover',event=>{
- if(!tablePointerSelecting||!(event.buttons&1))return;
- const cell=event.target.closest('td,th');if(cell&&editor.contains(cell))selectTableRangeTo(cell);
+editor.addEventListener('pointermove',event=>{
+ if(!tablePointerSelecting||!tablePointerStart||!(event.buttons&1))return;
+ if(!tableDragRange&&Math.hypot(event.clientX-tablePointerStart.x,event.clientY-tablePointerStart.y)<5)return;
+ tableDragRange=true;event.preventDefault();const cell=event.target.closest('td,th');if(cell&&editor.contains(cell))selectTableRangeTo(cell);
 });
-document.addEventListener('pointerup',()=>{tablePointerSelecting=false});
+document.addEventListener('pointerup',()=>{tablePointerSelecting=false;tablePointerStart=null;tableDragRange=false;updateTableTools()});
 editor.addEventListener('click',event=>{
  const cell=event.target.closest('td,th');
  if(!cell||!editor.contains(cell)){activeTableCell=null;activeTable=null;clearTableCellSelection();updateTableTools();return}
@@ -1409,14 +1392,13 @@ function navigateTableCell(event){
  const pos=tableCellPosition(cell);if(!pos)return;let target=null;
  if(event.key==='ArrowLeft'||event.key==='ArrowRight'){
   const range=selection.getRangeAt(0),probe=document.createRange();probe.selectNodeContents(cell);
-  const atStart=range.compareBoundaryPoints(Range.START_TO_START,probe)===0;
-  const atEnd=range.compareBoundaryPoints(Range.START_TO_END,probe)===0;
+  const atStart=range.compareBoundaryPoints(Range.START_TO_START,probe)===0,atEnd=range.compareBoundaryPoints(Range.START_TO_END,probe)===0;
   if(event.key==='ArrowLeft'&&atStart)target=pos.grid[pos.row][pos.column-1];
   if(event.key==='ArrowRight'&&atEnd)target=pos.grid[pos.row][pos.column+Math.max(1,cell.colSpan||1)];
  }else{
-  const rect=selection.getRangeAt(0).getBoundingClientRect(),cellRect=cell.getBoundingClientRect();
-  const atEdge=event.key==='ArrowUp'?rect.top<=cellRect.top+12:rect.bottom>=cellRect.bottom-12;
-  if(atEdge){const row=event.key==='ArrowUp'?pos.row-1:pos.row+Math.max(1,cell.rowSpan||1);target=pos.grid[row]&&pos.grid[row][Math.min(pos.column,pos.grid[row].length-1)]}
+  const caret=selection.getRangeAt(0).getBoundingClientRect(),bounds=cell.getBoundingClientRect();
+  const atEdge=event.key==='ArrowUp'?caret.top<=bounds.top+24:caret.bottom>=bounds.bottom-24;
+  if(atEdge){const step=event.key==='ArrowUp'?-1:1;for(let row=pos.row+step;row>=0&&row<pos.grid.length;row+=step){const cells=pos.grid[row]||[],candidate=cells[Math.min(pos.column,Math.max(0,cells.length-1))];if(candidate&&candidate!==cell){target=candidate;break}}}
  }
  if(target&&target!==cell){event.preventDefault();clearTableCellSelection();tableSelectionAnchor=target;focusTableCell(target,event.key==='ArrowLeft'||event.key==='ArrowUp')}
 }

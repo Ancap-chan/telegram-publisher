@@ -246,7 +246,7 @@ def test_editor_api_rejects_retry_without_pending_messages(tmp_path):
 def test_editor_api_renders_latex_as_mathml(display):
     api = EditorApi(FakeWindow())
 
-    result = api.render_math(r"\\frac{a}{b}", display)
+    result = api.render_math(r"\frac{a}{b}", display)
 
     assert result.startswith("<math")
     assert f'display="{display}"' in result

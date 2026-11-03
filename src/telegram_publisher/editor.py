@@ -1348,7 +1348,6 @@ document.getElementById('table-add-row').onclick=addTableRow;
 document.getElementById('table-delete-row').onclick=deleteTableRow;
 document.getElementById('table-add-column').onclick=addTableColumn;
 document.getElementById('table-delete-column').onclick=deleteTableColumn;
-document.getElementById('table-merge').onclick=mergeTableCells;
 document.getElementById('table-header-row').onclick=toggleHeaderRow;
 document.getElementById('table-cell-align').onchange=event=>applyCellAlignment('align',event.target.value);
 document.getElementById('table-cell-valign').onchange=event=>applyCellAlignment('valign',event.target.value);
@@ -1359,7 +1358,7 @@ function setActiveTableCell(cell){if(!cell||!editor.contains(cell))return;active
 function selectTableRangeTo(cell){
  if(!tableSelectionAnchor||!cell||tableSelectionAnchor.closest('table')!==cell.closest('table'))return;
  selectTableRectangle(tableSelectionAnchor,cell);activeTableCell=cell;activeTable=cell.closest('table');
- document.getElementById('table-merge').disabled=selectedTableCells.length<2;
+ document.getElementById('table-group').disabled=selectedTableCells.length<2;
 }
 let tablePointerStart=null,tableDragRange=false;
 editor.addEventListener('pointerdown',event=>{

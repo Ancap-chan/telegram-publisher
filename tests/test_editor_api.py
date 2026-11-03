@@ -290,3 +290,13 @@ def test_editor_api_validates_math_preview_arguments(latex, display, message):
 
     with pytest.raises(ValueError, match=message):
         api.render_math(latex, display)
+
+
+
+def test_manual_is_loaded_from_package_resource():
+    manual = editor_module._load_manual_html()
+
+    assert "<b>Версия:</b> 1.2.0" in manual
+    assert "{{VERSION}}" not in manual
+    assert "<h2>Таблицы</h2>" in manual
+    assert "<h2>Математические формулы</h2>" in manual

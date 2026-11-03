@@ -44,7 +44,7 @@ try {
 
     # Используем уникальный временный каталог, чтобы не сталкиваться с заблокированными остатками прошлой сборки.
     Write-Host "Временные файлы сборки: $BuildWorkPath"
-    & $Python -m PyInstaller --noconfirm --clean --onefile --windowed --workpath $BuildWorkPath --name "Telegram Publisher" --paths "src" --collect-all webview --collect-all clr_loader --collect-all pythonnet "run_app.py"
+    & $Python -m PyInstaller --noconfirm --clean --onefile --windowed --workpath $BuildWorkPath --name "Telegram Publisher" --paths "src" --collect-all webview --collect-all clr_loader --collect-all pythonnet --collect-data telegram_publisher "run_app.py"
     if ($LASTEXITCODE -ne 0) {
         throw "Сборка PyInstaller завершилась с ошибкой. Код завершения: $LASTEXITCODE"
     }

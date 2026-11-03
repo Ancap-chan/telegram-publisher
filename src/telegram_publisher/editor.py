@@ -77,7 +77,11 @@ body.code-mode .edit-tools{display:flex}
 @media(max-width:620px){#insert-dialog-backdrop{padding:8px}#insert-dialog{max-height:calc(100vh - 16px)}#insert-dialog .dialog-body{padding:14px}} 
 #editor input[type=checkbox]{width:16px;height:16px;vertical-align:middle;margin:0 6px 0 0}
 #editor table{border-collapse:collapse;width:100%}
-#editor td,#editor th{border:1px solid #888;padding:6px}
+#editor td,#editor th{border:1px dashed #aab2bd;padding:6px}
+#editor table[bordered] td,#editor table[bordered] th{border:1px solid #888}
+#editor table[striped] tbody tr:nth-child(even) td,#editor table[striped] tbody tr:nth-child(even) th{background:#f0f3f7}
+#editor table[compact] td,#editor table[compact] th{padding:2px 4px}
+#editor table[compact] caption{padding:2px 4px}
 .table-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:4px;border-top:1px solid #e4e6e9}
 .table-tools[hidden]{display:none}
 .table-tools button,.table-tools select,.table-tools input{font-size:12px;padding:4px 6px}
@@ -405,9 +409,8 @@ function refreshCodeEditor(){
 }
 function visualTextOffset(){
  const selection=window.getSelection();
- if(!selection||!selection.rangeCount)return 0;
- const range=document.createRange();
- range.selectNodeContents(editor);
+ if(!selection||!selection.rangeCount||!editor.contains(selection.focusNode))return 0;
+ const range=document.createRange();range.selectNodeContents(editor);
  try{range.setEnd(selection.focusNode,selection.focusOffset)}catch(_error){return 0}
  return range.toString().length;
 }
@@ -430,62 +433,34 @@ function setVisualTextOffset(offset){
  range.collapse(true);
  const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
 }
+function isFormattingWhitespace(source,index){
+ if(!/\s/.test(source[index]||''))return false;
+ let start=index,end=index;while(start>0&&/\s/.test(source[start-1]))start--;while(end<source.length&&/\s/.test(source[end]))end++;
+ return source[start-1]==='>'&&source[end]==='<';
+}
 function htmlOffsetToTextOffset(markup,htmlOffset){
- const source=String(markup||'').slice(0,Math.max(0,htmlOffset));
- let index=0,visible=0,inTag=false,inComment=false,quote='';
+ const source=String(markup||'').slice(0,Math.max(0,htmlOffset));let index=0,visible=0,inTag=false,inComment=false,quote='';
  while(index<source.length){
-  if(inComment){
-   if(source.startsWith('-->',index)){inComment=false;index+=3;continue}
-   index++;continue;
-  }
+  if(inComment){if(source.startsWith('-->',index)){inComment=false;index+=3;continue}index++;continue}
   if(!inTag&&source.startsWith('<!--',index)){inComment=true;index+=4;continue}
   const char=source[index];
-  if(inTag){
-   if(quote){if(char===quote)quote='';}
-   else if(char==='"'||char==="'")quote=char;
-   else if(char==='>')inTag=false;
-   index++;continue;
-  }
+  if(inTag){if(quote){if(char===quote)quote=''}else if(char==='"'||char==="'")quote=char;else if(char==='>')inTag=false;index++;continue}
   if(char==='<'){inTag=true;index++;continue}
-  if(char==='&'){
-   const end=source.indexOf(';',index+1);
-   if(end>index&&end-index<16){
-    const decoder=document.createElement('textarea');
-    decoder.innerHTML=source.slice(index,end+1);
-    const decoded=decoder.value;
-    if(decoded!==source.slice(index,end+1)){visible+=decoded.length;index=end+1;continue}
-   }
-  }
+  if(isFormattingWhitespace(source,index)){while(index<source.length&&/\s/.test(source[index]))index++;continue}
+  if(char==='&'){const end=source.indexOf(';',index+1);if(end>index&&end-index<16){const decoder=document.createElement('textarea');decoder.innerHTML=source.slice(index,end+1);const decoded=decoder.value;if(decoded!==source.slice(index,end+1)){visible+=decoded.length;index=end+1;continue}}}
   visible++;index++;
  }
  return visible;
 }
 function textOffsetToHtmlOffset(markup,textOffset){
- const source=String(markup||'');
- let index=0,visible=0;
+ const source=String(markup||'');let index=0,visible=0;
  while(index<source.length&&visible<textOffset){
   if(source[index]==='<'){
-   if(source.startsWith('<!--',index)){
-    const end=source.indexOf('-->',index+4);index=end<0?source.length:end+3;continue;
-   }
-   let end=index+1,quote='';
-   for(;end<source.length;end++){
-    const ch=source[end];
-    if(quote){if(ch===quote)quote='';}
-    else if(ch==='"'||ch==="'")quote=ch;
-    else if(ch==='>'){end++;break;}
-   }
-   index=end;continue;
+   if(source.startsWith('<!--',index)){const end=source.indexOf('-->',index+4);index=end<0?source.length:end+3;continue}
+   let end=index+1,quote='';for(;end<source.length;end++){const ch=source[end];if(quote){if(ch===quote)quote=''}else if(ch==='"'||ch==="'")quote=ch;else if(ch==='>'){end++;break}}index=end;continue;
   }
-  if(source[index]==='&'){
-   const end=source.indexOf(';',index+1);
-   if(end>index&&end-index<16){
-    const decoder=document.createElement('textarea');
-    decoder.innerHTML=source.slice(index,end+1);
-    const decoded=decoder.value;
-    if(decoded!==source.slice(index,end+1)){visible+=decoded.length;index=end+1;continue;}
-   }
-  }
+  if(isFormattingWhitespace(source,index)){while(index<source.length&&/\s/.test(source[index]))index++;continue}
+  if(source[index]==='&'){const end=source.indexOf(';',index+1);if(end>index&&end-index<16){const decoder=document.createElement('textarea');decoder.innerHTML=source.slice(index,end+1);const decoded=decoder.value;if(decoded!==source.slice(index,end+1)){visible+=decoded.length;index=end+1;continue}}}
   visible++;index++;
  }
  return index;
@@ -1316,7 +1291,9 @@ function addTableColumn(){
  for(let r=0;r<table.rows.length;r++){
   const row=table.rows[r],cover=grid[r]&&grid[r][insertAt-1];
   if(cover&&cover.colSpan>1&&tableCellPosition(cover).column+cover.colSpan>insertAt){cover.colSpan++;continue}
-  const newCell=document.createElement('td');newCell.innerHTML='<br>';newCell.setAttribute('align','left');newCell.setAttribute('valign','middle');
+  const firstRow=table.rows[0];
+  const headerRow=firstRow&&firstRow.cells.length>0&&Array.from(firstRow.cells).every(item=>item.tagName==='TH');
+  const newCell=document.createElement(headerRow&&row===firstRow?'th':'td');newCell.innerHTML='<br>';newCell.setAttribute('align','left');newCell.setAttribute('valign','middle');
   const target=grid[r]&&grid[r][insertAt];
   if(target&&target.parentElement===row)row.insertBefore(newCell,target);
   else row.append(newCell);
@@ -1395,13 +1372,55 @@ document.getElementById('table-header-row').onclick=toggleHeaderRow;
 document.getElementById('table-cell-align').onchange=event=>applyCellAlignment('align',event.target.value);
 document.getElementById('table-cell-valign').onchange=event=>applyCellAlignment('valign',event.target.value);
 document.getElementById('table-cell-spans').onclick=applyCellSpans;
+let tableSelectionAnchor=null,tablePointerSelecting=false;
+function setActiveTableCell(cell){if(!cell||!editor.contains(cell))return;activeTableCell=cell;activeTable=cell.closest('table');updateTableTools()}
+function selectTableRangeTo(cell){
+ if(!tableSelectionAnchor||!cell||tableSelectionAnchor.closest('table')!==cell.closest('table'))return;
+ selectTableRectangle(tableSelectionAnchor,cell);activeTableCell=cell;activeTable=cell.closest('table');
+ document.getElementById('table-merge').disabled=selectedTableCells.length<2;
+}
+editor.addEventListener('pointerdown',event=>{
+ const cell=event.target.closest('td,th');
+ if(!cell||!editor.contains(cell)){tableSelectionAnchor=null;tablePointerSelecting=false;return}
+ if(event.button!==0)return;
+ if(event.shiftKey&&tableSelectionAnchor&&tableSelectionAnchor.closest('table')===cell.closest('table')){selectTableRangeTo(cell);tablePointerSelecting=true}
+ else{clearTableCellSelection();tableSelectionAnchor=cell;tablePointerSelecting=true;setActiveTableCell(cell)}
+});
+editor.addEventListener('pointerover',event=>{
+ if(!tablePointerSelecting||!(event.buttons&1))return;
+ const cell=event.target.closest('td,th');if(cell&&editor.contains(cell))selectTableRangeTo(cell);
+});
+document.addEventListener('pointerup',()=>{tablePointerSelecting=false});
 editor.addEventListener('click',event=>{
  const cell=event.target.closest('td,th');
- if(!cell||!editor.contains(cell)){activeTableCell=null;clearTableCellSelection();updateTableTools();return}
- if(event.shiftKey&&activeTableCell&&activeTableCell.closest('table')===cell.closest('table'))selectTableRectangle(activeTableCell,cell);
- else{clearTableCellSelection();activeTableCell=cell}
+ if(!cell||!editor.contains(cell)){activeTableCell=null;activeTable=null;clearTableCellSelection();updateTableTools();return}
+ if(!selectedTableCells.includes(cell)){clearTableCellSelection();tableSelectionAnchor=cell;setActiveTableCell(cell)}
  updateTableTools();
 });
+function focusTableCell(cell,atEnd=false){
+ if(!cell)return;const range=document.createRange();range.selectNodeContents(cell);range.collapse(!atEnd);
+ const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);setActiveTableCell(cell);
+}
+function navigateTableCell(event){
+ if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)||event.altKey||event.ctrlKey||event.metaKey)return;
+ const selection=window.getSelection();if(!selection||!selection.isCollapsed)return;
+ let node=selection.focusNode;if(node&&node.nodeType===Node.TEXT_NODE)node=node.parentElement;
+ const cell=node&&node.closest?node.closest('td,th'):null;if(!cell||!editor.contains(cell))return;
+ const pos=tableCellPosition(cell);if(!pos)return;let target=null;
+ if(event.key==='ArrowLeft'||event.key==='ArrowRight'){
+  const range=selection.getRangeAt(0),probe=document.createRange();probe.selectNodeContents(cell);
+  const atStart=range.compareBoundaryPoints(Range.START_TO_START,probe)===0;
+  const atEnd=range.compareBoundaryPoints(Range.START_TO_END,probe)===0;
+  if(event.key==='ArrowLeft'&&atStart)target=pos.grid[pos.row][pos.column-1];
+  if(event.key==='ArrowRight'&&atEnd)target=pos.grid[pos.row][pos.column+Math.max(1,cell.colSpan||1)];
+ }else{
+  const rect=selection.getRangeAt(0).getBoundingClientRect(),cellRect=cell.getBoundingClientRect();
+  const atEdge=event.key==='ArrowUp'?rect.top<=cellRect.top+12:rect.bottom>=cellRect.bottom-12;
+  if(atEdge){const row=event.key==='ArrowUp'?pos.row-1:pos.row+Math.max(1,cell.rowSpan||1);target=pos.grid[row]&&pos.grid[row][Math.min(pos.column,pos.grid[row].length-1)]}
+ }
+ if(target&&target!==cell){event.preventDefault();clearTableCellSelection();tableSelectionAnchor=target;focusTableCell(target,event.key==='ArrowLeft'||event.key==='ArrowUp')}
+}
+editor.addEventListener('keydown',navigateTableCell);
 
 const seriesStatus=document.getElementById('series-status');
 function isAlbumMode(){return modeSelect.value==='album'||modeSelect.value==='album_series'}

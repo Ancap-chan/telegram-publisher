@@ -2446,7 +2446,21 @@ def main() -> None:
     if window is None:
         raise RuntimeError("Не удалось создать окно редактора.")
     api = EditorApi(window)
-    window.expose(api.publish, api.retry_pending, api.get_status, api.import_url, api.import_file, api.open_file, api.save_draft, api.open_manual, api.select_media_files, api.get_profiles, api.save_channel_profile, api.delete_channel_profile)
+    window.expose(
+        api.publish,
+        api.retry_pending,
+        api.get_status,
+        api.import_url,
+        api.import_file,
+        api.open_file,
+        api.save_draft,
+        api.open_manual,
+        api.select_media_files,
+        api.get_profiles,
+        api.save_channel_profile,
+        api.delete_channel_profile,
+        api.render_math,
+    )
 
     def initialize() -> None:
         window.evaluate_js(

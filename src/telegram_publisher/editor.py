@@ -2353,6 +2353,20 @@ class EditorApi:
         )
         return str(destination)
 
+    def render_math(self, latex: str, display: str = "inline") -> str:
+        """Преобразовать формулу LaTeX в MathML для предпросмотра редактора."""
+        value = str(latex).strip()
+        if not value:
+            raise ValueError("Введите математическую формулу.")
+        if len(value) > 10_000:
+            raise ValueError("Формула слишком длинная: максимум 10 000 символов.")
+        if display not in {"inline", "block"}:
+            raise ValueError("Неизвестный режим отображения формулы.")
+        try:
+            return convert_latex_to_mathml(value, display=display)
+        except Exception as error:
+            raise ValueError(f"Не удалось преобразовать формулу LaTeX: {error}") from error
+
     def select_media_files(self) -> list[dict[str, str]]:
         """Выбрать локальные изображения и видео для совместимых способов публикации."""
         paths = self.window.create_file_dialog(
